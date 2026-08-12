@@ -1,0 +1,163 @@
+{
+  "_hinweis": "Dieses Dokument beschreibt das Tabellenlayout des Google-Sheets, das als Datenbank dient. Die Funktion migrate() in code.gs legt alle fehlenden Tabs UND fehlenden Spalten automatisch an (bestehende Daten bleiben unangetastet) - einfach nach jedem Code-Update einmal im Apps-Script-Editor ausführen. Spalte A ist bei den meisten Tabellen 'ID' (per Utilities.getUuid() erzeugt), Ausnahmen sind vermerkt.",
+
+  "Users": {
+    "beschreibung": "Freigeschaltete Benutzer des Betriebs. Der erste jemals eingeloggte Google-Account wird automatisch als Admin angelegt (Bootstrap). Alle weiteren müssen von einem Admin hier eingetragen/freigeschaltet werden.",
+    "spalten": ["Email", "Name", "Rolle", "Status", "AngelegtAm"],
+    "hinweise": { "Rolle": "Admin | Mitarbeiter", "Status": "Aktiv | Gesperrt" }
+  },
+
+  "Betrieb": {
+    "beschreibung": "Genau eine Datenzeile mit den Stammdaten des Hofs.",
+    "spalten": ["HofName", "Adresse", "Betriebsnummer", "Ansprechpartner", "AktualisiertAm"]
+  },
+
+  "Flaechen": {
+    "beschreibung": "Parzellen/Flächen des Betriebs inkl. Geometrie als GeoJSON-String.",
+    "spalten": ["ID", "Name", "KatastralGemeinde", "Parzellennummer", "FlaecheHa", "Besitzart", "Nutzungsart", "GeoJSON", "Notiz", "ErstelltVon", "ErstelltAm", "Aktiv"],
+    "hinweise": {
+      "Besitzart": "Besitz | Pacht",
+      "Nutzungsart": "Wald | Dauerwiese | Wechselwiese | Weinbau | Obstbau | Ackerland (alter Wert 'Obst-Weinbau' bleibt aus Altdaten gültig)",
+      "GeoJSON": "Vollständiges GeoJSON-Feature (Polygon/MultiPolygon) als Text gespeichert, WGS84 (EPSG:4326)",
+      "Aktiv": "TRUE | FALSE - für 'weiche' Löschung"
+    }
+  },
+
+  "SubFlaechen": {
+    "beschreibung": "Sub-Polygone innerhalb einer Katasterparzelle, z.B. einzelne Rebanlagen/Rebsorten-Zonen oder Obstanlagen.",
+    "spalten": ["ID", "FlaecheID", "Name", "Rebsorte", "FlaecheM2", "Pflanzjahr", "GeoJSON", "Notiz", "ErstelltVon", "ErstelltAm", "Aktiv"],
+    "hinweise": { "Rebsorte": "z.B. Vernatsch, Lagrein, Weißburgunder, Sauvignon Blanc ... (Freitext)" }
+  },
+
+  "Kulturen": {
+    "beschreibung": "Stammdaten je Kultur für Saatmengen-Berechnung, Düngeempfehlung, Fruchtfolge-Regeln und Karten-Farbe/Symbol.",
+    "spalten": ["Kultur", "Kategorie", "SaatmengeKgHa", "DuengeempfehlungN_KgHa", "DuengeempfehlungP_KgHa", "DuengeempfehlungK_KgHa", "UnvertraeglicheVorfruechte", "AnbaupauseJahre", "KartenFarbe", "KartenSymbol"],
+    "hinweise": { "KartenFarbe": "Hex-Farbcode für die Kartendarstellung, z.B. #eab308", "KartenSymbol": "Ein Emoji, z.B. 🌽" }
+  },
+
+  "Fruchtfolge": {
+    "beschreibung": "Jährliche Zuweisung von Kultur/Bewirtschaftung zu einer Wechselwiese/Ackerland-Fläche. Bestimmt die Kartenfarbe/-symbol des laufenden Jahres.",
+    "spalten": ["ID", "FlaecheID", "Jahr", "Kultur", "Aussaatdatum", "Erntedatum", "SaatmengeKgHaBerechnet", "SaatmengeGesamtKg", "Notiz", "ErstelltVon", "ErstelltAm"]
+  },
+
+  "Schnitte": {
+    "beschreibung": "Feldbuch Grünland: Schnitt-Dokumentation je Wiesenparzelle.",
+    "spalten": ["ID", "FlaecheID", "SchnittNummer", "Datum", "Erntetyp", "ErtragsMenge", "ErtragsEinheit", "Notiz", "ErfasstVon", "ErfasstAm"],
+    "hinweise": { "Erntetyp": "Heu | Silage | Grummet", "ErtragsEinheit": "Rundballen | Quaderballen | Tonnen" }
+  },
+
+  "Duengungen": {
+    "beschreibung": "Feldbuch: Dünge-/Nährstoff-Nachweis je Parzelle für die behördliche Dokumentation.",
+    "spalten": ["ID", "FlaecheID", "Datum", "Duengerart", "Menge", "Einheit", "Notiz", "ErfasstVon", "ErfasstAm"],
+    "hinweise": { "Duengerart": "Gülle | Mist | Kompost | Mineraldünger | Sonstiges", "Einheit": "m³ | kg" }
+  },
+
+  "WeinbauMassnahmen": {
+    "beschreibung": "Pflegetagebuch je Rebanlage (SubFlaeche): saisonale Arbeiten und optionale Pflanzenschutz-/Stärkungsmittel-Einträge.",
+    "spalten": ["ID", "SubFlaecheID", "Datum", "Massnahme", "Bio", "Mittel", "Notiz", "ErfasstVon", "ErfasstAm"],
+    "hinweise": { "Massnahme": "Rebschnitt | Biegen-Binden | Auslauben | Maehen-Mulchen | Netze-schliessen | Reifekontrolle | Pflanzenschutz | Sonstiges", "Bio": "TRUE | FALSE" }
+  },
+
+  "Reifemessungen": {
+    "beschreibung": "Reifemessungen im Herbst je Rebanlage.",
+    "spalten": ["ID", "SubFlaecheID", "Datum", "Oechsle", "Saeure", "PH", "Notiz", "ErfasstVon", "ErfasstAm"]
+  },
+
+  "WeinLese": {
+    "beschreibung": "Ernte-Erfassung (Weinlese) je Rebanlage.",
+    "spalten": ["ID", "SubFlaecheID", "Datum", "MengeKg", "MostgewichtOechsle", "Notiz", "ErfasstVon", "ErfasstAm"]
+  },
+
+  "Tanks": {
+    "beschreibung": "Tanks/Fässer der Kellerwirtschaft.",
+    "spalten": ["ID", "Bezeichnung", "VolumenLiter", "AktuellerInhaltLiter", "Sorte", "Jahrgang", "Notiz", "ErstelltVon", "ErstelltAm", "Aktiv"]
+  },
+
+  "KellerLogbuch": {
+    "beschreibung": "Chronologisches Logbuch je Tank.",
+    "spalten": ["ID", "TankID", "Datum", "Aktion", "RestzuckerGL", "Notiz", "ErfasstVon", "ErfasstAm"],
+    "hinweise": { "Aktion": "Schwefelung | Abstich | Stabilisierung | Filtration | Sonstiges" }
+  },
+
+  "Abfuellungen": {
+    "beschreibung": "Abfüllungs-Protokoll je Tank/Charge - reduziert automatisch Tanks.AktuellerInhaltLiter.",
+    "spalten": ["ID", "TankID", "Datum", "FlaschenAnzahl", "FlaschenGroesseMl", "Charge", "Notiz", "ErfasstVon", "ErfasstAm"]
+  },
+
+  "Maschinen": {
+    "beschreibung": "Fuhrpark / Betriebsmittel.",
+    "spalten": ["ID", "GeraeteNummer", "Bezeichnung", "Typ", "Baujahr", "Anschaffungspreis", "Anschaffungsdatum", "BetriebsstundenAktuell", "FotoDriveFileID", "FotoURL", "DokumenteJSON", "Notiz", "ErstelltVon", "ErstelltAm", "Aktiv"],
+    "hinweise": {
+      "GeraeteNummer": "z.B. #TR-01, frei vergeben, für QR-Code/Beschriftung",
+      "DokumenteJSON": "JSON-Array von {name, url} für Schmierpläne/Ersatzteillisten/Notizen als Anhang"
+    }
+  },
+
+  "Betriebsstunden": {
+    "beschreibung": "Log jeder Betriebsstunden-Erfassung (Delta), Summe ergibt Maschinen.BetriebsstundenAktuell.",
+    "spalten": ["ID", "MaschinenID", "Datum", "StundenDelta", "Notiz", "ErfasstVon", "ErfasstAm"]
+  },
+
+  "WartungsIntervalle": {
+    "beschreibung": "Definierte Wartungsintervalle je Maschine für die Ampel-Anzeige. 'Erledigt melden' (Aktion wartungsintervalle.erfassen) setzt LetzteWartung* automatisch zurück und legt einen MaschinenKosten-Eintrag an.",
+    "spalten": ["ID", "MaschinenID", "Bezeichnung", "IntervallStunden", "IntervallMonate", "LetzteWartungStunden", "LetzteWartungDatum", "Notiz"]
+  },
+
+  "MaschinenKosten": {
+    "beschreibung": "Laufende Kosten je Maschine inkl. Beleg-Upload (Google Drive).",
+    "spalten": ["ID", "MaschinenID", "Datum", "Kategorie", "Betrag", "Beschreibung", "BelegDriveFileID", "BelegURL", "ErfasstVon", "ErfasstAm"],
+    "hinweise": { "Kategorie": "Reparatur | Wartung | Kraftstoff | Versicherung | Sonstiges" }
+  },
+
+  "AllgemeineKosten": {
+    "beschreibung": "Hof-weite Sammelkosten, die nicht einer Einzelmaschine zugeordnet werden (Diesel-Sammelrechnung, Versicherungen, Pacht, Strom, Beiträge).",
+    "spalten": ["ID", "Datum", "Kategorie", "MengeLiter", "Betrag", "Beschreibung", "BelegDriveFileID", "BelegURL", "ErfasstVon", "ErfasstAm"],
+    "hinweise": { "Kategorie": "Treibstoff-Sammelrechnung | Versicherung | Pacht | Strom | Beitraege | Sonstiges", "MengeLiter": "Nur bei Treibstoff-Sammelrechnung relevant" }
+  },
+
+  "Erntevermarktung": {
+    "beschreibung": "Verkaufserlöse aus Ernte-/Forstprodukten und Wein (kein Einzeltier-Verkauf - dafür TierErloese).",
+    "spalten": ["ID", "Datum", "Kategorie", "Menge", "Einheit", "Erloes", "Beschreibung", "ErfasstVon", "ErfasstAm"],
+    "hinweise": { "Kategorie": "Heuballen | Siloballen | Silomais | Brennholz | Stammholz | Trauben | Wein | Sonstiges", "Einheit": "Ballen | Tonnen | Festmeter | Raummeter | kg | Liter" }
+  },
+
+  "Tiere": {
+    "beschreibung": "Einzeltier-Verwaltung (primär Rinder, aber für jede Tierart mit Einzeltier-Tracking nutzbar).",
+    "spalten": ["ID", "Tierart", "Ohrmarke", "Rasse", "Name", "Geburtsdatum", "Geschlecht", "Status", "MutterOhrmarke", "Notiz", "ErstelltVon", "ErstelltAm"],
+    "hinweise": { "Tierart": "Rind | Ziege | Schaf | Sonstiges", "Geschlecht": "weiblich | männlich", "Status": "Lebend | Verkauft | Geschlachtet | Verstorben" }
+  },
+
+  "Zuchtereignisse": {
+    "beschreibung": "Zuchtkalender: Besamung/Deckung/Abkalbung je Tier. Bei Besamung/Deckung werden VoraussichtlichesAbkalbedatum (+283 Tage) und TrockenstellenAb (Abkalbedatum -60 Tage) automatisch berechnet.",
+    "spalten": ["ID", "TierID", "Datum", "Typ", "Vatertier", "VoraussichtlichesAbkalbedatum", "TrockenstellenAb", "Notiz", "ErfasstVon", "ErfasstAm"],
+    "hinweise": { "Typ": "Besamung | Deckung | Abkalbung" }
+  },
+
+  "TierKosten": {
+    "beschreibung": "Einzelkosten je Tier (Kaufpreis, Tierarzt, Futter, Besamung, Sonstiges).",
+    "spalten": ["ID", "TierID", "Datum", "Kategorie", "Betrag", "Beschreibung", "BelegDriveFileID", "BelegURL", "ErfasstVon", "ErfasstAm"],
+    "hinweise": { "Kategorie": "Kauf | Tierarzt | Futter | Besamung | Sonstiges" }
+  },
+
+  "TierErloese": {
+    "beschreibung": "Erlöse je Tier (Verkauf/Schlachtung) - zusammen mit TierKosten Basis der Deckungsbeitrags-Berechnung.",
+    "spalten": ["ID", "TierID", "Datum", "Art", "Betrag", "Beschreibung", "ErfasstVon", "ErfasstAm"],
+    "hinweise": { "Art": "Verkauf | Schlachtung" }
+  },
+
+  "Tierbestand": {
+    "beschreibung": "Gruppen-/Herdenverwaltung ohne Einzeltier-Tracking (z.B. Hühner, größere Schaf-/Ziegenherden).",
+    "spalten": ["ID", "Tierart", "Bezeichnung", "AnzahlAktuell", "Notiz", "ErstelltVon", "ErstelltAm", "Aktiv"]
+  },
+
+  "TierbestandBewegungen": {
+    "beschreibung": "Zu-/Abgangs-Log für Tierbestand-Gruppen.",
+    "spalten": ["ID", "TierbestandID", "Datum", "Typ", "Anzahl", "Notiz", "ErfasstVon"],
+    "hinweise": { "Typ": "Zugang | Abgang | Verlust" }
+  },
+
+  "AktivitaetsLog": {
+    "beschreibung": "Einfaches Audit-Log, u.a. für 'wer ist aktuell aktiv' auf dem Dashboard.",
+    "spalten": ["Timestamp", "UserEmail", "UserName", "Aktion", "Details"]
+  }
+}

@@ -1,0 +1,351 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
+<title>Hof-Management</title>
+<meta name="theme-color" content="#166534">
+<link rel="manifest" href="manifest.json">
+<link rel="icon" href="icons/icon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="icons/icon.svg">
+
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+
+<script src="https://cdn.tailwindcss.com"></script>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="https://unpkg.com/leaflet-draw@1.0.4/dist/leaflet.draw.js"></script>
+<link rel="stylesheet" href="https://unpkg.com/leaflet-draw@1.0.4/dist/leaflet.draw.css" />
+<script src="https://accounts.google.com/gsi/client" async defer></script>
+<script src="https://unpkg.com/qrcode@1.5.3/build/qrcode.min.js"></script>
+<script src="https://unpkg.com/@turf/turf@6/turf.min.js"></script>
+
+<style>
+  body { font-family: 'Inter', ui-sans-serif, system-ui, sans-serif; }
+  #map { height: 60vh; min-height: 420px; }
+  .nav-btn { transition: background-color .15s, color .15s; border-left: 3px solid transparent; }
+  .nav-btn.active { background-color: #ecfdf5; color: #166534; border-left-color: #166534; font-weight: 600; }
+  .traffic-green { background-color: #22c55e; }
+  .traffic-yellow { background-color: #eab308; }
+  .traffic-red { background-color: #ef4444; }
+  dialog::backdrop { background: rgba(15,23,42,0.55); backdrop-filter: blur(2px); }
+  dialog { border: none; }
+  .vtab-btn.active-tab { border-color: #166534 !important; color: #166534 !important; }
+  @keyframes flaeche-glow {
+    0%, 100% { filter: drop-shadow(0 0 2px #2563eb) drop-shadow(0 0 2px #2563eb); }
+    50% { filter: drop-shadow(0 0 12px #2563eb) drop-shadow(0 0 6px #2563eb); }
+  }
+  .flaeche-highlight { animation: flaeche-glow 1s ease-in-out 3; }
+  .app-section h2 { letter-spacing: -0.01em; }
+  @keyframes loadingbar {
+    0% { transform: translateX(-100%) scaleX(0.4); }
+    50% { transform: translateX(20%) scaleX(0.7); }
+    100% { transform: translateX(150%) scaleX(0.4); }
+  }
+  .loadingbar-inner { animation: loadingbar 1.3s ease-in-out infinite; transform-origin: left; }
+  @keyframes spin-slow { to { transform: rotate(360deg); } }
+  .btn-refresh.spinning { animation: spin-slow 0.8s linear infinite; }
+  /* Zuverlässiger mobiler Menü-Toggle unabhängig von Tailwind-Utility-Reihenfolge
+     (ID+Klasse hat höhere Spezifität als die einzelne .hidden-Utility-Klasse). */
+  @media (max-width: 767px) {
+    #mainNav.nav-open { display: flex !important; flex-direction: column; }
+  }
+</style>
+</head>
+<body class="bg-gray-50 text-gray-800">
+
+<!-- ===================== LOGIN-BILDSCHIRM ===================== -->
+<div id="loginScreen" class="min-h-screen flex flex-col items-center justify-center gap-6 p-6 bg-gradient-to-br from-green-50 via-white to-emerald-50">
+  <div class="text-center space-y-3">
+    <div class="w-16 h-16 mx-auto rounded-2xl bg-gradient-to-br from-green-700 to-emerald-500 shadow-lg flex items-center justify-center text-3xl">🚜</div>
+    <h1 class="text-3xl font-extrabold text-gray-800 tracking-tight">Hof-Management</h1>
+    <p class="text-gray-500">Bitte melde dich mit deinem freigeschalteten Google-Konto an.</p>
+  </div>
+  <div id="gsiButtonContainer"></div>
+  <p id="loginError" class="text-red-600 text-sm max-w-md text-center"></p>
+</div>
+
+<!-- ===================== LADE-OVERLAY ===================== -->
+<div id="loadingOverlay" class="hidden fixed inset-0 bg-white/95 backdrop-blur-sm z-[100] flex flex-col items-center justify-center gap-4">
+  <div class="w-14 h-14 rounded-2xl bg-gradient-to-br from-green-700 to-emerald-500 shadow-lg flex items-center justify-center text-2xl">🚜</div>
+  <div class="text-gray-600 font-medium text-sm" id="loadingOverlayText">Daten werden geladen …</div>
+  <div class="w-64 h-1.5 bg-gray-200 rounded-full overflow-hidden">
+    <div class="loadingbar-inner h-full w-full bg-green-600 rounded-full"></div>
+  </div>
+</div>
+
+<!-- ===================== APP-SHELL ===================== -->
+<div id="appShell" class="hidden min-h-screen flex flex-col">
+
+  <!-- Topbar -->
+  <header class="bg-gradient-to-r from-green-800 to-green-700 text-white px-4 py-3 flex items-center justify-between shadow-md">
+    <div class="flex items-center gap-3">
+      <button id="btnMenuToggle" class="md:hidden text-xl leading-none px-1" aria-label="Menü öffnen">☰</button>
+      <div class="w-9 h-9 rounded-xl bg-white/15 flex items-center justify-center text-lg shrink-0">🚜</div>
+      <span class="text-lg font-bold tracking-tight" id="hofNameLabel">Hof-Management</span>
+    </div>
+    <div class="flex items-center gap-3 text-sm">
+      <div id="activeUsersLabel" class="hidden sm:block opacity-90"></div>
+      <button id="btnAktualisieren" title="Alle Daten neu laden" class="flex items-center gap-1.5 bg-white/10 hover:bg-white/20 px-3 py-1.5 rounded-lg transition-colors">
+        <span class="btn-refresh">🔄</span> <span class="hidden sm:inline">Aktualisieren</span>
+      </button>
+      <div class="flex items-center gap-2 pl-1">
+        <img id="userAvatar" class="w-7 h-7 rounded-full ring-2 ring-white/30" src="" alt="">
+        <span id="userNameLabel" class="hidden sm:inline"></span>
+      </div>
+      <button id="signOutBtn" class="bg-black/20 hover:bg-black/30 px-3 py-1.5 rounded-lg transition-colors">Abmelden</button>
+    </div>
+  </header>
+
+  <div class="flex flex-1 overflow-hidden relative">
+    <div id="navBackdrop" class="hidden fixed inset-0 bg-black/40 z-40"></div>
+
+    <!-- Navigation -->
+    <nav id="mainNav" class="hidden md:flex w-64 md:w-56 bg-white border-r p-3 flex-col gap-1 shrink-0 fixed md:static top-[57px] bottom-0 left-0 z-50 overflow-y-auto shadow-2xl md:shadow-none">
+      <button data-section="dashboard" class="nav-btn text-left px-3 py-2 rounded hover:bg-green-100">📊 Dashboard</button>
+      <button data-section="flaechen" class="nav-btn text-left px-3 py-2 rounded hover:bg-green-100">🗺️ Flächen</button>
+      <button data-section="fuhrpark" class="nav-btn text-left px-3 py-2 rounded hover:bg-green-100">🚜 Fuhrpark</button>
+      <button data-section="vieh" class="nav-btn text-left px-3 py-2 rounded hover:bg-green-100">🐄 Viehhaltung</button>
+      <button data-section="weinbau" class="nav-btn text-left px-3 py-2 rounded hover:bg-green-100">🍇 Weinbau &amp; Keller</button>
+      <button data-section="finanzen" class="nav-btn text-left px-3 py-2 rounded hover:bg-green-100">💶 Finanzen</button>
+      <hr class="my-2">
+      <button data-section="einstellungen" class="nav-btn text-left px-3 py-2 rounded hover:bg-green-100">⚙️ Einstellungen</button>
+    </nav>
+
+    <!-- Content -->
+    <main class="flex-1 overflow-y-auto p-4 sm:p-6">
+
+      <!-- DASHBOARD -->
+      <section id="section-dashboard" class="app-section space-y-4">
+        <h2 class="text-2xl font-extrabold text-gray-800 tracking-tight">Dashboard</h2>
+        <div id="dashboardCards" class="grid grid-cols-2 md:grid-cols-4 gap-4"></div>
+        <div id="dashboardWartungsAlarm" class="hidden bg-red-50 border border-red-300 text-red-800 rounded-xl p-4 text-sm space-y-1"></div>
+        <div class="bg-white rounded-xl shadow p-4">
+          <h3 class="font-semibold mb-2">Gerade aktiv</h3>
+          <div id="dashboardActiveUsers" class="text-sm text-gray-600"></div>
+        </div>
+      </section>
+
+      <!-- FLÄCHEN -->
+      <section id="section-flaechen" class="app-section hidden space-y-4">
+        <div class="flex items-center justify-between flex-wrap gap-2">
+          <h2 class="text-2xl font-extrabold text-gray-800 tracking-tight">Flächen &amp; Fruchtfolge</h2>
+          <div class="flex gap-2 flex-wrap">
+            <button id="btnWerkzeugeToggle" class="bg-gray-700 text-white px-3 py-2 rounded shadow hover:bg-gray-800 text-sm">🛠️ Karten-Werkzeuge</button>
+            <button id="btnNeueFlaeche" class="bg-green-700 text-white px-3 py-2 rounded shadow hover:bg-green-800 text-sm">+ Neue Fläche</button>
+          </div>
+        </div>
+        <div id="flaechenWerkzeuge" class="hidden flex flex-wrap gap-2 bg-white rounded-xl shadow p-3">
+          <label class="flex items-center gap-1 text-sm bg-gray-50 px-3 py-2 rounded cursor-pointer">
+            <input type="checkbox" id="toggleKatasterLayer"> Kataster-Ebene
+          </label>
+          <button id="btnKatasterAbfragen" class="bg-blue-600 text-white px-3 py-2 rounded shadow hover:bg-blue-700 text-sm">📍 Parzelle vom Kataster abfragen</button>
+          <button id="btnZeichnen" class="bg-amber-600 text-white px-3 py-2 rounded shadow hover:bg-amber-700 text-sm">✏️ Fläche zeichnen</button>
+          <button id="btnSammelModus" class="bg-purple-600 text-white px-3 py-2 rounded shadow hover:bg-purple-700 text-sm">➕ Mehrteilige Fläche</button>
+          <button id="btnGpsStandort" class="bg-sky-600 text-white px-3 py-2 rounded shadow hover:bg-sky-700 text-sm">🛰️ Mein Standort</button>
+        </div>
+        <div id="map" class="rounded-xl shadow border"></div>
+        <div id="flaechenLegende" class="flex flex-wrap gap-3 text-xs text-gray-600"></div>
+
+        <div id="sammelPanel" class="hidden bg-purple-50 border border-purple-300 rounded-xl p-4 space-y-3">
+          <div class="flex items-center justify-between flex-wrap gap-2">
+            <h3 class="font-semibold text-purple-900">🧩 Mehrteilige Fläche zusammenstellen: <span id="sammelZielName">neue Fläche</span></h3>
+            <div class="flex gap-2">
+              <button id="btnSammelFertig" class="bg-purple-700 text-white px-3 py-2 rounded text-sm hover:bg-purple-800">✅ Fertig - Fläche erstellen/aktualisieren</button>
+              <button id="btnSammelAbbrechen" class="bg-white border border-purple-300 text-purple-700 px-3 py-2 rounded text-sm hover:bg-purple-100">Abbrechen</button>
+            </div>
+          </div>
+          <p class="text-sm text-purple-800">Klicke jetzt beliebig oft auf Kataster-Parzellen ("Parzelle vom Kataster abfragen" aktivieren) und/oder zeichne Teilstücke ("Fläche zeichnen") - jedes Stück wird hier gesammelt, bis du auf "Fertig" klickst.</p>
+          <div id="sammelListe" class="text-sm space-y-1"></div>
+          <div class="font-semibold text-purple-900" id="sammelSumme"></div>
+        </div>
+
+        <div class="bg-white rounded-xl shadow p-4">
+          <h3 class="font-semibold mb-3">Parzellen-Liste</h3>
+          <div id="flaechenTable" class="overflow-x-auto"></div>
+        </div>
+        <div id="fruchtfolgePanel" class="hidden bg-white rounded-xl shadow p-4 space-y-3">
+          <h3 class="font-semibold">Fruchtfolge: <span id="fruchtfolgeFlaecheName"></span></h3>
+          <div id="fruchtfolgeTable" class="overflow-x-auto"></div>
+          <button id="btnNeueFruchtfolge" class="bg-green-700 text-white px-3 py-2 rounded text-sm">+ Kultur für neues Jahr zuweisen</button>
+        </div>
+        <div id="subFlaechenPanel" class="hidden bg-white rounded-xl shadow p-4 space-y-3">
+          <h3 class="font-semibold">Rebanlagen / Sub-Flächen: <span id="subFlaechenFlaecheName"></span></h3>
+          <div id="subFlaechenTable" class="overflow-x-auto"></div>
+          <button id="btnNeueSubFlaeche" class="bg-amber-600 text-white px-3 py-2 rounded text-sm">✏️ Rebanlage auf Karte einzeichnen</button>
+        </div>
+        <div id="feldbuchPanel" class="hidden bg-white rounded-xl shadow p-4 space-y-3">
+          <h3 class="font-semibold">Feldbuch: <span id="feldbuchFlaecheName"></span></h3>
+          <div class="flex gap-2 border-b">
+            <button data-ftab="schnitte" class="ftab-btn px-3 py-2 text-sm font-medium border-b-2 border-green-700">Schnitte</button>
+            <button data-ftab="duengung" class="ftab-btn px-3 py-2 text-sm font-medium border-b-2 border-transparent text-gray-500">Düngung</button>
+          </div>
+          <div id="ftab-schnitte" class="ftab-panel space-y-2">
+            <div id="schnitteTable" class="overflow-x-auto"></div>
+            <button id="btnNeuerSchnitt" class="bg-green-700 text-white px-3 py-2 rounded text-sm">+ Schnitt erfassen</button>
+          </div>
+          <div id="ftab-duengung" class="ftab-panel hidden space-y-2">
+            <div id="duengeempfehlungBox" class="hidden bg-amber-50 border border-amber-200 rounded-lg p-3 text-sm text-amber-900"></div>
+            <div id="duengungTable" class="overflow-x-auto"></div>
+            <button id="btnNeueDuengung" class="bg-green-700 text-white px-3 py-2 rounded text-sm">+ Düngung erfassen</button>
+          </div>
+        </div>
+      </section>
+
+      <!-- FUHRPARK -->
+      <section id="section-fuhrpark" class="app-section hidden space-y-4">
+        <div class="flex items-center justify-between">
+          <h2 class="text-2xl font-extrabold text-gray-800 tracking-tight">Fuhrpark &amp; Betriebsmittel</h2>
+          <button id="btnNeueMaschine" class="bg-green-700 text-white px-3 py-2 rounded shadow hover:bg-green-800 text-sm">+ Neue Maschine</button>
+        </div>
+        <div id="maschinenGrid" class="grid gap-4 md:grid-cols-2 xl:grid-cols-3"></div>
+      </section>
+
+      <!-- WEINBAU & KELLER -->
+      <section id="section-weinbau" class="app-section hidden space-y-4">
+        <h2 class="text-2xl font-extrabold text-gray-800 tracking-tight">Weinbau &amp; Kellerwirtschaft</h2>
+        <p class="text-sm text-gray-500">Rebanlagen (Sub-Flächen) werden in der Flächen-Ansicht auf der Karte eingezeichnet - hier verwaltest du Pflege, Reife, Ernte und den Keller.</p>
+        <div class="flex gap-2 border-b">
+          <button data-wtab="rebanlagen" class="wtab-btn px-4 py-2 font-medium border-b-2 border-green-700">Rebanlagen</button>
+          <button data-wtab="keller" class="wtab-btn px-4 py-2 font-medium border-b-2 border-transparent text-gray-500">Keller</button>
+        </div>
+        <div id="wtab-rebanlagen" class="wtab-panel">
+          <div id="rebanlagenTable" class="overflow-x-auto bg-white rounded-xl shadow p-4"></div>
+        </div>
+        <div id="wtab-keller" class="wtab-panel hidden space-y-4">
+          <div class="flex justify-end">
+            <button id="btnNeuerTank" class="bg-green-700 text-white px-3 py-2 rounded shadow hover:bg-green-800 text-sm">+ Neuer Tank</button>
+          </div>
+          <div id="tanksGrid" class="grid gap-4 md:grid-cols-2 xl:grid-cols-3"></div>
+        </div>
+      </section>
+
+      <!-- VIEHHALTUNG -->
+      <section id="section-vieh" class="app-section hidden space-y-4">
+        <div class="flex items-center justify-between flex-wrap gap-2">
+          <h2 class="text-2xl font-extrabold text-gray-800 tracking-tight">Viehhaltung</h2>
+          <div class="flex gap-2">
+            <button id="btnNeuesTier" class="bg-green-700 text-white px-3 py-2 rounded shadow hover:bg-green-800 text-sm">+ Einzeltier</button>
+            <button id="btnNeuerBestand" class="bg-green-700 text-white px-3 py-2 rounded shadow hover:bg-green-800 text-sm">+ Tierbestand (Gruppe)</button>
+            <button id="btnExportBestandsregister" class="bg-gray-700 text-white px-3 py-2 rounded shadow hover:bg-gray-800 text-sm">⬇️ Bestandsregister (CSV)</button>
+          </div>
+        </div>
+        <div id="zuchtErinnerungen" class="hidden bg-amber-50 border border-amber-300 text-amber-800 rounded-xl p-4 text-sm"></div>
+        <div class="flex gap-2 border-b">
+          <button data-vtab="tiere" class="vtab-btn px-4 py-2 font-medium border-b-2 border-green-700">Einzeltiere</button>
+          <button data-vtab="bestand" class="vtab-btn px-4 py-2 font-medium border-b-2 border-transparent text-gray-500">Tierbestand (Gruppen)</button>
+        </div>
+        <div id="vtab-tiere" class="vtab-panel">
+          <div id="tiereTable" class="overflow-x-auto bg-white rounded-xl shadow p-4"></div>
+        </div>
+        <div id="vtab-bestand" class="vtab-panel hidden">
+          <div id="bestandTable" class="overflow-x-auto bg-white rounded-xl shadow p-4"></div>
+        </div>
+      </section>
+
+      <!-- FINANZEN -->
+      <section id="section-finanzen" class="app-section hidden space-y-4">
+        <div class="flex items-center justify-between flex-wrap gap-3">
+          <h2 class="text-2xl font-extrabold text-gray-800 tracking-tight">Finanzen &amp; Auswertung</h2>
+          <div class="flex items-center gap-3 flex-wrap text-sm bg-white px-3 py-2 rounded shadow">
+            <label class="flex items-center gap-1">Jahr:
+              <select id="finanzenJahr" class="border rounded px-2 py-1"></select>
+            </label>
+            <label class="flex items-center gap-1">
+              <input type="checkbox" id="finanzenAnschaffungToggle"> Anschaffungskosten einbeziehen
+            </label>
+            <label class="flex items-center gap-1">Tier-Auswertung:
+              <select id="tierAuswertungModus" class="border rounded px-2 py-1">
+                <option value="lebenszyklus">Lebenszyklus (gesamt)</option>
+                <option value="jahr">Jahresbilanz</option>
+              </select>
+            </label>
+          </div>
+        </div>
+        <div id="finanzenCards" class="grid grid-cols-1 md:grid-cols-3 gap-4"></div>
+        <div class="bg-white rounded-xl shadow p-4">
+          <h3 class="font-semibold mb-3">Kosten- &amp; Erlösübersicht</h3>
+          <div id="finanzenBars" class="space-y-3"></div>
+        </div>
+        <div class="bg-white rounded-xl shadow p-4 space-y-3">
+          <div class="flex items-center justify-between flex-wrap gap-2">
+            <h3 class="font-semibold">Allgemeine Betriebskosten (Diesel-Sammelrechnung, Versicherung, Pacht ...)</h3>
+            <button id="btnNeueAllgemeineKosten" class="bg-red-100 text-red-700 px-3 py-2 rounded text-sm">+ Kosten erfassen</button>
+          </div>
+          <div id="allgemeineKostenTable" class="overflow-x-auto"></div>
+        </div>
+        <div class="bg-white rounded-xl shadow p-4 space-y-3">
+          <div class="flex items-center justify-between flex-wrap gap-2">
+            <h3 class="font-semibold">Erntevermarktung (Heu/Silage/Holz/Wein)</h3>
+            <button id="btnNeueErntevermarktung" class="bg-green-100 text-green-700 px-3 py-2 rounded text-sm">+ Verkauf erfassen</button>
+          </div>
+          <div id="erntevermarktungTable" class="overflow-x-auto"></div>
+        </div>
+        <div class="bg-white rounded-xl shadow p-4">
+          <h3 class="font-semibold mb-3" id="deckungsbeitragTitel">Deckungsbeitrag je Tier</h3>
+          <div id="deckungsbeitragTable" class="overflow-x-auto"></div>
+        </div>
+      </section>
+
+      <!-- EINSTELLUNGEN -->
+      <section id="section-einstellungen" class="app-section hidden space-y-4">
+        <h2 class="text-2xl font-extrabold text-gray-800 tracking-tight">Einstellungen</h2>
+        <div class="bg-white rounded-xl shadow p-4 space-y-3 max-w-xl">
+          <h3 class="font-semibold">Betrieb</h3>
+          <div id="betriebForm" class="space-y-2"></div>
+          <button id="btnBetriebSpeichern" class="bg-green-700 text-white px-3 py-2 rounded text-sm">Speichern</button>
+        </div>
+        <div class="bg-white rounded-xl shadow p-4 space-y-3 max-w-2xl">
+          <div class="flex items-center justify-between">
+            <h3 class="font-semibold">Benutzer &amp; Rollen (nur Admin)</h3>
+            <button id="btnNeuerUser" class="bg-green-700 text-white px-3 py-2 rounded text-sm">+ Benutzer freischalten</button>
+          </div>
+          <div id="usersTable" class="overflow-x-auto"></div>
+        </div>
+        <div class="bg-white rounded-xl shadow p-4 space-y-3 max-w-2xl">
+          <h3 class="font-semibold">Kulturen-Stammdaten</h3>
+          <div id="kulturenTable" class="overflow-x-auto"></div>
+          <button id="btnNeueKultur" class="bg-green-700 text-white px-3 py-2 rounded text-sm">+ Kultur anlegen</button>
+        </div>
+      </section>
+
+    </main>
+  </div>
+</div>
+
+<!-- ===================== GENERISCHES MODAL ===================== -->
+<dialog id="formModal" class="rounded-xl shadow-xl w-full max-w-lg p-0">
+  <form id="formModalForm" method="dialog" class="flex flex-col max-h-[85vh]">
+    <div class="px-5 py-4 border-b flex items-center justify-between">
+      <h3 id="formModalTitle" class="font-bold text-lg">Titel</h3>
+      <button type="button" id="formModalClose" class="text-gray-400 hover:text-gray-700 text-xl leading-none">✕</button>
+    </div>
+    <div id="formModalBody" class="px-5 py-4 space-y-3 overflow-y-auto"></div>
+    <div class="px-5 py-4 border-t flex justify-end gap-2">
+      <button type="button" id="formModalCancel" class="px-4 py-2 rounded border">Abbrechen</button>
+      <button type="submit" id="formModalSave" class="px-4 py-2 rounded bg-green-700 text-white hover:bg-green-800">Speichern</button>
+    </div>
+  </form>
+</dialog>
+
+<!-- ===================== DETAIL-DIALOG (Kosten/Erlöse/Wartung je Maschine/Tier) ===================== -->
+<dialog id="detailModal" class="rounded-xl shadow-xl w-full max-w-2xl p-0">
+  <div class="flex flex-col max-h-[85vh]">
+    <div class="px-5 py-4 border-b flex items-center justify-between">
+      <h3 id="detailModalTitle" class="font-bold text-lg">Details</h3>
+      <button type="button" id="detailModalClose" class="text-gray-400 hover:text-gray-700 text-xl leading-none">✕</button>
+    </div>
+    <div id="detailModalBody" class="px-5 py-4 space-y-4 overflow-y-auto"></div>
+  </div>
+</dialog>
+
+<!-- Toast -->
+<div id="toast" class="hidden fixed bottom-4 right-4 max-w-sm bg-gray-900 text-white px-4 py-3 rounded-lg shadow-lg z-50"></div>
+
+<script src="config.js"></script>
+<script src="api.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
