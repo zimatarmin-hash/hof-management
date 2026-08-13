@@ -27,7 +27,11 @@ const Auth = {
     google.accounts.id.initialize({
       client_id: CONFIG.GOOGLE_CLIENT_ID,
       callback: (response) => this._handleCredential(response.credential),
-      auto_select: true
+      auto_select: true,
+      // Safari blockiert standardmäßig geräteübergreifende Cookies (ITP) - dieser Parameter
+      // sagt der Google-Bibliothek, dass sie sich darauf einstellen soll (sonst bleibt der
+      // "Mit Google anmelden"-Button in Safari/iOS wirkungslos oder erscheint gar nicht).
+      itp_support: true
     });
 
     google.accounts.id.renderButton(document.getElementById('gsiButtonContainer'), {
