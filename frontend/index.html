@@ -19,7 +19,6 @@
 <script src="https://unpkg.com/leaflet-draw@1.0.4/dist/leaflet.draw.js"></script>
 <link rel="stylesheet" href="https://unpkg.com/leaflet-draw@1.0.4/dist/leaflet.draw.css" />
 <script src="https://accounts.google.com/gsi/client" async defer></script>
-<script src="https://unpkg.com/qrcode@1.5.3/build/qrcode.min.js"></script>
 <script src="https://unpkg.com/@turf/turf@6/turf.min.js"></script>
 
 <style>
@@ -122,8 +121,23 @@
       <section id="section-dashboard" class="app-section space-y-4">
         <h2 class="text-2xl font-extrabold text-gray-800 tracking-tight">Dashboard</h2>
         <div id="dashboardCards" class="grid grid-cols-2 md:grid-cols-4 gap-4"></div>
+        <div id="dashboardFlaechenBox" class="hidden bg-white rounded-xl shadow p-4">
+          <h3 class="font-semibold mb-2">🗺️ Flächen nach Nutzung</h3>
+          <div id="dashboardFlaechenInhalt" class="text-sm text-gray-600 space-y-1"></div>
+        </div>
+        <div id="dashboardArbeitenBox" class="hidden bg-white rounded-xl shadow p-4">
+          <h3 class="font-semibold mb-2">🚜 Anstehende Bearbeitungen</h3>
+          <div id="dashboardArbeitenInhalt" class="text-sm text-gray-600 space-y-1"></div>
+        </div>
         <div id="dashboardWartungsAlarm" class="hidden bg-red-50 border border-red-300 text-red-800 rounded-xl p-4 text-sm space-y-1"></div>
-        <div id="dashboardFuttermittelBox" class="hidden bg-amber-50 border border-amber-300 text-amber-800 rounded-xl p-4 text-sm space-y-1"></div>
+        <div id="dashboardFuttermittelBox" class="hidden bg-white rounded-xl shadow p-4">
+          <h3 class="font-semibold mb-2">🌾 Futtermittel im Lager</h3>
+          <div id="dashboardFuttermittelInhalt" class="text-sm text-gray-600 space-y-1"></div>
+        </div>
+        <div id="dashboardKellerBox" class="hidden bg-white rounded-xl shadow p-4">
+          <h3 class="font-semibold mb-2">🍷 Keller</h3>
+          <div id="dashboardKellerInhalt" class="text-sm text-gray-600 space-y-1"></div>
+        </div>
         <div id="dashboardWetterBox" class="hidden bg-white rounded-xl shadow p-4">
           <h3 class="font-semibold mb-2">🌦️ Wetter &amp; Boden (Dauergrünland)</h3>
           <div id="dashboardWetterInhalt" class="text-sm text-gray-600"></div>
@@ -241,21 +255,11 @@
           <h2 class="text-2xl font-extrabold text-gray-800 tracking-tight">Viehhaltung</h2>
           <div class="flex gap-2">
             <button id="btnNeuesTier" class="bg-green-700 text-white px-3 py-2 rounded shadow hover:bg-green-800 text-sm">+ Einzeltier</button>
-            <button id="btnNeuerBestand" class="bg-green-700 text-white px-3 py-2 rounded shadow hover:bg-green-800 text-sm">+ Tierbestand (Gruppe)</button>
             <button id="btnExportBestandsregister" class="bg-gray-700 text-white px-3 py-2 rounded shadow hover:bg-gray-800 text-sm">⬇️ Bestandsregister (CSV)</button>
           </div>
         </div>
         <div id="zuchtErinnerungen" class="hidden bg-amber-50 border border-amber-300 text-amber-800 rounded-xl p-4 text-sm"></div>
-        <div class="flex gap-2 border-b">
-          <button data-vtab="tiere" class="vtab-btn px-4 py-2 font-medium border-b-2 border-green-700">Einzeltiere</button>
-          <button data-vtab="bestand" class="vtab-btn px-4 py-2 font-medium border-b-2 border-transparent text-gray-500">Tierbestand (Gruppen)</button>
-        </div>
-        <div id="vtab-tiere" class="vtab-panel">
-          <div id="tiereTable" class="overflow-x-auto bg-white rounded-xl shadow p-4"></div>
-        </div>
-        <div id="vtab-bestand" class="vtab-panel hidden">
-          <div id="bestandTable" class="overflow-x-auto bg-white rounded-xl shadow p-4"></div>
-        </div>
+        <div id="tiereTable" class="overflow-x-auto bg-white rounded-xl shadow p-4"></div>
       </section>
 
       <!-- FUTTERMITTEL -->

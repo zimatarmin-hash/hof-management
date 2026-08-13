@@ -26,7 +26,6 @@ const state = {
   zuchtereignisse: [],
   tierkosten: [],
   tiererloese: [],
-  tierbestand: [],
   users: [],
   betrieb: null,
   map: null,
@@ -193,7 +192,6 @@ const FULL_SYNC_CALLS = {
   zuchtereignisse: { action: 'zuchtereignisse.list' },
   tierkosten: { action: 'tierkosten.list' },
   tiererloese: { action: 'tiererloese.list' },
-  tierbestand: { action: 'tierbestand.list' },
   users: { action: 'users.list' },
   dashboardSummary: { action: 'dashboard.summary' }
 };
@@ -428,7 +426,7 @@ async function onSignedIn(profile) {
     refreshActiveUsersLabel();
     setInterval(refreshActiveUsersLabel, 3 * 60 * 1000);
 
-    await handleDeepLink();
+    await showSection('dashboard');
   } catch (e) {
     document.getElementById('loginError').textContent = e.message;
     document.getElementById('appShell').classList.add('hidden');
@@ -452,48 +450,29 @@ async function refreshActiveUsersLabel() {
 }
 
 // ============================================================================
-// DEEP-LINK (QR-Code-Scan öffnet direkt die Schnellerfassung einer Maschine)
-// ============================================================================
-async function handleDeepLink() {
-  const params = new URLSearchParams(location.search);
-  const maschinenId = params.get('maschine');
-  if (!maschinenId) { showSection('dashboard'); return; }
-
-  history.replaceState(null, '', location.pathname);
-  await showSection('fuhrpark');
-  const maschine = state.maschinen.find(m => m.ID === maschinenId);
-  if (maschine) {
-    openMaschineSchnellerfassung(maschine);
-  } else {
-    toast('Maschine aus dem QR-Code wurde nicht gefunden.', true);
-  }
-}
-
-// ============================================================================
 // DASHBOARD
 // ============================================================================
 async function loadDashboard() {
-  const { s, maschinen, intervalle, futtermittel, tanks, flaschenbestand } = await cachedBatch({
+  const { s, maschinen, intervalle, futtermittel, tanks, flaschenbestand, flaechen, fruchtfolge } = await cachedBatch({
     s: { action: 'dashboard.summary' },
     maschinen: { action: 'maschinen.list' },
     intervalle: { action: 'wartungsintervalle.list' },
     futtermittel: { action: 'futtermittel.list' },
     tanks: { action: 'tanks.list' },
-    flaschenbestand: { action: 'flaschenbestand.list' }
+    flaschenbestand: { action: 'flaschenbestand.list' },
+    flaechen: { action: 'flaechen.list' },
+    fruchtfolge: { action: 'fruchtfolge.list' }
   });
   state.maschinen = maschinen.filter(m => m.Aktiv !== false);
   state.wartungsintervalle = intervalle;
   const futtermittelAktiv = futtermittel.filter(f => f.Aktiv !== false);
-  const fassInhaltGesamt = tanks.filter(t => t.Aktiv !== false).reduce((sum, t) => sum + Number(t.AktuellerInhaltLiter || 0), 0);
-  const flaschenGesamt = flaschenbestand.filter(f => f.Aktiv !== false).reduce((sum, f) => sum + Number(f.AnzahlAktuell || 0), 0);
+  const flaschenbestandAktiv = flaschenbestand.filter(f => f.Aktiv !== false && Number(f.AnzahlAktuell || 0) > 0);
+  const flaechenAktiv = flaechen.filter(f => f.Aktiv !== false);
 
   const cards = [
     ['Flächen', `${s.flaecheGesamtHa.toFixed(2)} ha`, `${s.flaechenAnzahl} Parzellen`],
-    ['Maschinen', s.maschinenAnzahl, 'im Fuhrpark'],
     ['Tiere', s.tiereAnzahl, 'Einzeltiere (lebend)'],
-    ['Saldo', euro(s.finanzen.saldo), 'Erlöse - Kosten gesamt'],
-    ['Futtermittel', futtermittelAktiv.length, 'Sorten im Lager'],
-    ['Keller', `${fassInhaltGesamt.toFixed(0)} l`, `+ ${flaschenGesamt} Flaschen im Lager`]
+    ['Saldo', euro(s.finanzen.saldo), 'Erlöse - Kosten gesamt']
   ];
   document.getElementById('dashboardCards').innerHTML = cards.map(c => `
     <div class="bg-white rounded-xl shadow p-4">
@@ -501,6 +480,37 @@ async function loadDashboard() {
       <div class="text-2xl font-bold">${c[1]}</div>
       <div class="text-gray-400 text-xs">${c[2]}</div>
     </div>`).join('');
+
+  // ---- Flächen nach Nutzung/Kultur ----
+  const haVon = (arr) => arr.reduce((sum, f) => sum + Number(f.FlaecheHa || 0), 0);
+  const gruenland = flaechenAktiv.filter(f => f.Nutzungsart === 'Dauerwiese' || f.Nutzungsart === 'Wechselwiese');
+  const weinbau = flaechenAktiv.filter(f => f.Nutzungsart === 'Weinbau' || f.Nutzungsart === 'Obst-Weinbau');
+  const obstbau = flaechenAktiv.filter(f => f.Nutzungsart === 'Obstbau');
+  const ackerland = flaechenAktiv.filter(f => f.Nutzungsart === 'Ackerland');
+  const wald = flaechenAktiv.filter(f => f.Nutzungsart === 'Wald');
+  const almweide = flaechenAktiv.filter(f => f.Nutzungsart === 'Almweide');
+  const jahr = new Date().getFullYear();
+  const ackerlandProKultur = {};
+  ackerland.forEach(f => {
+    const zuweisung = fruchtfolge.find(ff => ff.FlaecheID === f.ID && Number(ff.Jahr) === jahr);
+    const kultur = zuweisung ? zuweisung.Kultur : 'ohne Zuweisung';
+    ackerlandProKultur[kultur] = (ackerlandProKultur[kultur] || 0) + Number(f.FlaecheHa || 0);
+  });
+  const flaechenZeile = (label, ha) => `<div class="flex justify-between"><span>${label}</span><b>${ha.toFixed(2)} ha</b></div>`;
+  const flaechenZeilen = [
+    flaechenZeile('Insgesamt', haVon(flaechenAktiv)),
+    flaechenZeile('🌾 Grünland', haVon(gruenland)),
+    flaechenZeile('🍇 Weinbau', haVon(weinbau))
+  ];
+  if (obstbau.length) flaechenZeilen.push(flaechenZeile('🍎 Obstbau', haVon(obstbau)));
+  flaechenZeilen.push(flaechenZeile('🌱 Ackerland', haVon(ackerland)));
+  Object.entries(ackerlandProKultur).forEach(([kultur, ha]) => {
+    flaechenZeilen.push(`<div class="flex justify-between pl-4 text-xs text-gray-500"><span>↳ ${kultur}</span><span>${ha.toFixed(2)} ha</span></div>`);
+  });
+  flaechenZeilen.push(flaechenZeile('🌲 Wald', haVon(wald)));
+  flaechenZeilen.push(flaechenZeile('⛰️ Almweide', haVon(almweide)));
+  document.getElementById('dashboardFlaechenInhalt').innerHTML = flaechenZeilen.join('');
+  document.getElementById('dashboardFlaechenBox').classList.remove('hidden');
 
   const alarmBox = document.getElementById('dashboardWartungsAlarm');
   const alarme = state.maschinen
@@ -514,14 +524,30 @@ async function loadDashboard() {
     alarmBox.classList.add('hidden');
   }
 
+  // ---- Futtermittel konkret (was, wie viel) statt nur Sortenanzahl ----
   const futterBox = document.getElementById('dashboardFuttermittelBox');
-  const futterKnapp = futtermittelAktiv.filter(f => f.MindestBestand && Number(f.BestandAktuell || 0) < Number(f.MindestBestand));
-  if (futterKnapp.length) {
+  if (futtermittelAktiv.length) {
     futterBox.classList.remove('hidden');
-    futterBox.innerHTML = '<b>⚠️ Futtermittel knapp:</b>' + futterKnapp.map(f =>
-      `<div>${f.Bezeichnung}: ${Number(f.BestandAktuell || 0).toFixed(1)} ${f.Einheit} (Mindestbestand ${f.MindestBestand} ${f.Einheit})</div>`).join('');
+    document.getElementById('dashboardFuttermittelInhalt').innerHTML = futtermittelAktiv.map(f => {
+      const knapp = f.MindestBestand && Number(f.BestandAktuell || 0) < Number(f.MindestBestand);
+      return `<div class="flex justify-between ${knapp ? 'text-red-600 font-semibold' : ''}"><span>${f.Bezeichnung}</span><span>${Number(f.BestandAktuell || 0).toFixed(1)} ${f.Einheit}${knapp ? ' ⚠️' : ''}</span></div>`;
+    }).join('');
   } else {
     futterBox.classList.add('hidden');
+  }
+
+  // ---- Keller konkret (Fässer mit Inhalt + Flaschenbestand je Sorte/Jahrgang) ----
+  const kellerBox = document.getElementById('dashboardKellerBox');
+  const fassMitInhalt = tanks.filter(t => t.Aktiv !== false && Number(t.AktuellerInhaltLiter || 0) > 0);
+  if (fassMitInhalt.length || flaschenbestandAktiv.length) {
+    kellerBox.classList.remove('hidden');
+    const fassZeilen = fassMitInhalt.map(t =>
+      `<div class="flex justify-between"><span>🛢️ ${t.Bezeichnung}${t.Sorte ? ` (${t.Sorte}${t.Jahrgang ? ' ' + t.Jahrgang : ''})` : ''}</span><span>${Number(t.AktuellerInhaltLiter || 0).toFixed(0)} l</span></div>`);
+    const flaschenZeilen = flaschenbestandAktiv.map(f =>
+      `<div class="flex justify-between"><span>🍾 ${f.Bezeichnung}</span><span>${f.AnzahlAktuell} Flaschen</span></div>`);
+    document.getElementById('dashboardKellerInhalt').innerHTML = [...fassZeilen, ...flaschenZeilen].join('');
+  } else {
+    kellerBox.classList.add('hidden');
   }
 
   const activeEl = document.getElementById('dashboardActiveUsers');
@@ -530,6 +556,7 @@ async function loadDashboard() {
     : '<p class="text-gray-400">Aktuell sonst niemand aktiv.</p>';
 
   loadWetterBox();
+  loadArbeitenBox();
 }
 
 // Wetter/Boden-Übersicht für den Koordinaten-Mittelwert der Dauergrünwiesen (Open-Meteo,
@@ -550,13 +577,35 @@ async function loadWetterBox() {
     const lat = zentren.reduce((sum, p) => sum + p.lat, 0) / zentren.length;
     const lng = zentren.reduce((sum, p) => sum + p.lng, 0) / zentren.length;
 
-    const url = `https://api.open-meteo.com/v1/forecast?latitude=${lat.toFixed(4)}&longitude=${lng.toFixed(4)}&daily=precipitation_sum,et0_fao_evapotranspiration&past_days=7&forecast_days=7&timezone=auto`;
+    // "Jetzt" kommt aus dem Standard-Blendmodell (best_match) - für einen Momentanwert
+    // ergibt eine Mittelung über mehrere Vorhersagemodelle keinen Sinn, nur für die
+    // Tage-Vorhersage weiter unten.
+    const aktuellUrl = `https://api.open-meteo.com/v1/forecast?latitude=${lat.toFixed(4)}&longitude=${lng.toFixed(4)}&current=temperature_2m,precipitation&timezone=auto`;
+    const aktuellRes = await fetch(aktuellUrl);
+    const aktuellData = aktuellRes.ok ? await aktuellRes.json() : null;
+
+    // 7-Tage-Vorhersage (heute + 6 Tage) aus mehreren unabhängigen Wettermodellen
+    // gemittelt (deutsches ICON, europäisches ECMWF, amerikanisches GFS) - näherungsweise
+    // das, was mit mehreren "verlässlichen Quellen" gemeint ist, ohne dass dafür separate
+    // kostenpflichtige/Key-basierte Wetterdienste nötig wären.
+    const MODELLE = ['icon_seamless', 'ecmwf_ifs025', 'gfs_seamless'];
+    const url = `https://api.open-meteo.com/v1/forecast?latitude=${lat.toFixed(4)}&longitude=${lng.toFixed(4)}&daily=precipitation_sum,precipitation_probability_max,sunshine_duration,temperature_2m_max,temperature_2m_min,et0_fao_evapotranspiration&past_days=7&forecast_days=7&timezone=auto&models=${MODELLE.join(',')}`;
     const res = await fetch(url);
     if (!res.ok) throw new Error('Wetterdienst nicht erreichbar');
     const data = await res.json();
     const tage = data.daily.time;
-    const niederschlag = data.daily.precipitation_sum;
-    const verdunstung = data.daily.et0_fao_evapotranspiration;
+
+    const mittel = (feld) => tage.map((_, i) => {
+      const werte = MODELLE.map(m => (data.daily[`${feld}_${m}`] || [])[i]).filter(v => v !== null && v !== undefined);
+      return werte.length ? werte.reduce((sum, v) => sum + v, 0) / werte.length : null;
+    });
+    const niederschlag = mittel('precipitation_sum');
+    const niederschlagWk = mittel('precipitation_probability_max');
+    const sonnenstunden = mittel('sunshine_duration').map(s => s !== null ? s / 3600 : null); // Sekunden -> Stunden
+    const tempMax = mittel('temperature_2m_max');
+    const tempMin = mittel('temperature_2m_min');
+    const verdunstung = mittel('et0_fao_evapotranspiration');
+
     const heuteStr = new Date().toISOString().slice(0, 10);
     let heuteIdx = tage.indexOf(heuteStr);
     if (heuteIdx < 0) heuteIdx = 7; // Fallback: past_days=7, "heute" ist normalerweise Index 7
@@ -575,7 +624,35 @@ async function loadWetterBox() {
       }
     }
 
+    const naechsten7 = [];
+    for (let i = heuteIdx; i < Math.min(heuteIdx + 7, tage.length); i++) {
+      naechsten7.push({ datum: tage[i], regenWk: niederschlagWk[i], regenMm: niederschlag[i], sonne: sonnenstunden[i], tempMax: tempMax[i], tempMin: tempMin[i] });
+    }
+
+    const aktuellHtml = (aktuellData && aktuellData.current)
+      ? `<div class="mb-2"><b>Jetzt:</b> ${aktuellData.current.temperature_2m.toFixed(1)}°C${aktuellData.current.precipitation > 0 ? ` · ${aktuellData.current.precipitation} mm Niederschlag` : ''}</div>`
+      : '';
+
+    const tagesTabelle = `
+      <div class="overflow-x-auto mt-2">
+        <table class="min-w-full text-xs text-center">
+          <thead><tr class="text-gray-400">
+            <th class="text-left pb-1">Tag</th><th>🌧️ Chance</th><th>Regen</th><th>☀️ Std.</th><th>Temp</th>
+          </tr></thead>
+          <tbody>
+            ${naechsten7.map((t, i) => `<tr class="border-t">
+              <td class="text-left py-1">${i === 0 ? 'Heute' : new Date(t.datum).toLocaleDateString('de-DE', { weekday: 'short' })}</td>
+              <td>${t.regenWk !== null ? Math.round(t.regenWk) + '%' : '-'}</td>
+              <td>${t.regenMm !== null ? t.regenMm.toFixed(1) + 'mm' : '-'}</td>
+              <td>${t.sonne !== null ? t.sonne.toFixed(1) + 'h' : '-'}</td>
+              <td>${t.tempMax !== null ? Math.round(t.tempMin) + '°/' + Math.round(t.tempMax) + '°' : '-'}</td>
+            </tr>`).join('')}
+          </tbody>
+        </table>
+      </div>`;
+
     inhalt.innerHTML = `
+      ${aktuellHtml}
       <div class="grid grid-cols-2 gap-3">
         <div><span class="text-gray-400 text-xs">Niederschlag letzte 7 Tage</span><br><b>${niederschlag7.toFixed(1)} mm</b></div>
         <div><span class="text-gray-400 text-xs">Verdunstung letzte 7 Tage</span><br><b>${verdunstung7.toFixed(1)} mm</b></div>
@@ -583,6 +660,8 @@ async function loadWetterBox() {
       ${maehfenster
         ? `<div class="mt-2 text-green-700">🌤️ Gutes Mähfenster: ${fmtDate(maehfenster.von)} – ${fmtDate(maehfenster.bis)} (trocken)</div>`
         : `<div class="mt-2 text-gray-500">Kein trockenes Mähfenster in den nächsten Tagen erkennbar.</div>`}
+      ${tagesTabelle}
+      <div class="text-xs text-gray-400 mt-1">7-Tage-Vorhersage gemittelt aus mehreren Wettermodellen (ICON, ECMWF, GFS).</div>
     `;
     box.classList.remove('hidden');
   } catch (e) {
@@ -825,7 +904,7 @@ async function onMapClickKatasterAbfrage(e) {
   }
 }
 
-const NUTZUNGSARTEN = ['Wald', 'Dauerwiese', 'Wechselwiese', 'Weinbau', 'Obstbau', 'Ackerland'];
+const NUTZUNGSARTEN = ['Wald', 'Dauerwiese', 'Wechselwiese', 'Weinbau', 'Obstbau', 'Ackerland', 'Almweide'];
 const WECHSEL_NUTZUNGSARTEN = ['Wechselwiese', 'Ackerland'];
 const DAUERKULTUR_NUTZUNGSARTEN = ['Weinbau', 'Obstbau', 'Obst-Weinbau'];
 const NUTZUNGSART_FARBEN = {
@@ -835,7 +914,8 @@ const NUTZUNGSART_FARBEN = {
   'Weinbau': '#7e22ce',
   'Obstbau': '#db2777',
   'Obst-Weinbau': '#c026d3', // Altdaten-Kompatibilität
-  'Ackerland': '#92400e'
+  'Ackerland': '#92400e',
+  'Almweide': '#0d9488'
 };
 const NUTZUNGSART_ICONS = {
   'Wald': '🌲',
@@ -844,7 +924,8 @@ const NUTZUNGSART_ICONS = {
   'Weinbau': '🍇',
   'Obstbau': '🍎',
   'Obst-Weinbau': '🍇',
-  'Ackerland': '🌱'
+  'Ackerland': '🌱',
+  'Almweide': '⛰️'
 };
 const NUTZUNGSART_FARBE_STANDARD = '#2563eb';
 
@@ -1199,6 +1280,8 @@ function toggleGpsTracking() {
 }
 
 function openFlaecheModal(initial = {}) {
+  let arbeitsablaufListe = [];
+  try { arbeitsablaufListe = JSON.parse(initial.ArbeitsablaufJSON || '[]'); } catch (e) { arbeitsablaufListe = []; }
   openFormModal({
     title: initial.ID ? 'Fläche bearbeiten' : 'Neue Fläche',
     fields: [
@@ -1210,11 +1293,14 @@ function openFlaecheModal(initial = {}) {
       { key: 'Nutzungsart', label: 'Nutzungsart', type: 'select', options: NUTZUNGSARTEN },
       { key: 'Rebsorte', label: 'Rebsorte/Sorte (nur bei Weinbau/Obstbau relevant)' },
       { key: 'AnzahlPflanzen', label: 'Anzahl Pflanzen (nur bei Weinbau/Obstbau relevant)', type: 'number' },
+      { key: 'ArbeitsablaufText', label: 'Arbeitsschritte (kommagetrennt, in Reihenfolge)', help: 'z.B. Pflügen, Grubbern, Säen, Düngen, Ernten - oder 1. Schnitt, 2. Schnitt, 3. Schnitt. Ermöglicht die "Nächster Schritt"-Anzeige im Dashboard.' },
       { key: 'Notiz', label: 'Notiz', type: 'textarea' }
     ],
-    initial,
+    initial: { ...initial, ArbeitsablaufText: arbeitsablaufListe.join(', ') },
     onSubmit: async (values) => {
       const payload = { ...values };
+      delete payload.ArbeitsablaufText;
+      payload.ArbeitsablaufJSON = JSON.stringify((values.ArbeitsablaufText || '').split(',').map(s => s.trim()).filter(Boolean));
       if (state.aktuelleZeichnungGeoJSON) {
         payload.GeoJSON = JSON.stringify(state.aktuelleZeichnungGeoJSON.geometry || state.aktuelleZeichnungGeoJSON);
       } else if (initial.GeoJSON) {
@@ -1267,9 +1353,13 @@ async function loadFlaechenSection() {
         (WECHSEL_NUTZUNGSARTEN.includes(row.Nutzungsart)
           ? `<button data-id="${row.ID}" class="btn-fruchtfolge text-green-700 hover:underline mr-2">Fruchtfolge</button>` : '') +
         (DAUERKULTUR_NUTZUNGSARTEN.includes(row.Nutzungsart)
-          ? `<button data-id="${row.ID}" class="btn-rebanlagen text-purple-700 hover:underline mr-2">🍇 Rebanlagen</button>` : '')
+          ? `<button data-id="${row.ID}" class="btn-rebanlagen text-purple-700 hover:underline mr-2">🍇 Rebanlagen</button>` : '') +
+        (hatArbeitsablauf(row) ? `<button data-id="${row.ID}" class="btn-arbeitsschritt text-teal-700 hover:underline mr-2">✅ Schritt erledigt</button>` : '')
     });
 
+  document.querySelectorAll('.btn-arbeitsschritt').forEach(b => {
+    b.onclick = () => openArbeitsschrittModal(state.flaechen.find(f => f.ID === b.dataset.id));
+  });
   document.querySelectorAll('.btn-erweitern').forEach(b => {
     b.onclick = () => startSammelModus(state.flaechen.find(f => f.ID === b.dataset.id));
   });
@@ -1470,6 +1560,61 @@ function openSubFlaecheModal(initial = {}, flaecheId) {
 }
 
 // ============================================================================
+// ARBEITSABLÄUFE (freie Schritt-Reihenfolge je Fläche, z.B. Pflügen/Grubbern/Säen
+// oder 1./2./3. Schnitt) - ermittelt automatisch den nächsten anstehenden Schritt.
+// ============================================================================
+function arbeitsablaufVon(flaeche) {
+  try { return JSON.parse(flaeche.ArbeitsablaufJSON || '[]'); } catch (e) { return []; }
+}
+function hatArbeitsablauf(flaeche) {
+  return arbeitsablaufVon(flaeche).length > 0;
+}
+
+// Nächster Schritt = erster Schritt der Reihenfolge, der in diesem Kalenderjahr noch
+// nicht als erledigt protokolliert wurde. Sind alle erledigt, gilt der Ablauf als
+// abgeschlossen (kein "nächster Schritt" mehr) - passend z.B. für "3 Schnitte pro Jahr".
+function naechsterArbeitsschritt(flaeche, feldarbeitenAlle, jahr = new Date().getFullYear()) {
+  const schritte = arbeitsablaufVon(flaeche);
+  if (!schritte.length) return null;
+  const erledigtDiesesJahr = new Set(
+    feldarbeitenAlle.filter(f => f.FlaecheID === flaeche.ID && new Date(f.Datum).getFullYear() === jahr).map(f => f.Schritt)
+  );
+  return schritte.find(s => !erledigtDiesesJahr.has(s)) || null;
+}
+
+function openArbeitsschrittModal(flaeche) {
+  cachedList('feldarbeiten.list').then(alle => {
+    const naechster = naechsterArbeitsschritt(flaeche, alle);
+    openFormModal({
+      title: `Arbeitsschritt erledigt: ${flaeche.Name}`,
+      fields: [
+        { key: 'Schritt', label: 'Schritt', type: 'select', options: arbeitsablaufVon(flaeche) },
+        { key: 'Datum', label: 'Datum', type: 'date', required: true },
+        { key: 'Notiz', label: 'Notiz', type: 'textarea' }
+      ],
+      initial: { Schritt: naechster || arbeitsablaufVon(flaeche)[0] },
+      onSubmit: async (values) => {
+        const saved = await safeCall('feldarbeiten.create', { FlaecheID: flaeche.ID, ...values }, 'Arbeitsschritt erfasst.');
+        cacheUpsert('feldarbeiten.list', saved);
+      }
+    });
+  });
+}
+
+async function loadArbeitenBox() {
+  const box = document.getElementById('dashboardArbeitenBox');
+  const inhalt = document.getElementById('dashboardArbeitenInhalt');
+  const [flaechen, feldarbeiten] = await Promise.all([cachedList('flaechen.list'), cachedList('feldarbeiten.list')]);
+  const anstehend = flaechen
+    .filter(f => f.Aktiv !== false && hatArbeitsablauf(f))
+    .map(f => ({ f, naechster: naechsterArbeitsschritt(f, feldarbeiten) }))
+    .filter(x => x.naechster);
+  if (!anstehend.length) { box.classList.add('hidden'); return; }
+  box.classList.remove('hidden');
+  inhalt.innerHTML = anstehend.map(x => `<div class="flex justify-between"><span>${x.f.Name}</span><b>${x.naechster}</b></div>`).join('');
+}
+
+// ============================================================================
 // FELDBUCH (Schnitte + Düngung je Fläche)
 // ============================================================================
 document.querySelectorAll('.ftab-btn').forEach(b => b.addEventListener('click', () => {
@@ -1581,6 +1726,22 @@ function openDuengungModal(flaeche) {
 // ============================================================================
 // FUHRPARK
 // ============================================================================
+// Kompakte "nächste Wartung in X Tagen"-Anzeige direkt auf der Maschinenkarte
+// (nur datumsbasierte Intervalle - Betriebsstunden-Intervalle stehen schon in den Hinweisen).
+function naechsteWartungLabel(maschine, intervalle) {
+  let naechste = null;
+  intervalle.filter(i => i.MaschinenID === maschine.ID).forEach(iv => {
+    if (!iv.IntervallMonate || !iv.LetzteWartungDatum) return;
+    const datum = new Date(iv.LetzteWartungDatum);
+    datum.setMonth(datum.getMonth() + Number(iv.IntervallMonate));
+    const tage = Math.round((datum - new Date()) / 86400000);
+    if (!naechste || tage < naechste.tage) naechste = { tage, bezeichnung: iv.Bezeichnung, datum };
+  });
+  if (!naechste) return '';
+  if (naechste.tage < 0) return `⚠️ ${naechste.bezeichnung} überfällig seit ${Math.abs(naechste.tage)} Tagen`;
+  return `Nächste Wartung: ${naechste.bezeichnung} in ${naechste.tage} Tagen (${fmtDate(naechste.datum)})`;
+}
+
 function computeAmpelStatus(maschine, intervalle) {
   let status = 'green';
   let hinweise = [];
@@ -1624,13 +1785,14 @@ async function loadFuhrparkSection() {
       </div>
       <div class="text-sm text-gray-600">Betriebsstunden: <b>${Number(m.BetriebsstundenAktuell || 0).toFixed(1)}</b></div>
       ${hinweise.length ? `<div class="text-xs text-amber-700">${hinweise.join('<br>')}</div>` : ''}
+      ${naechsteWartungLabel(m, intervalle) ? `<div class="text-xs text-gray-500">${naechsteWartungLabel(m, intervalle)}</div>` : ''}
       <div class="flex gap-2 flex-wrap pt-2 border-t">
         <button data-id="${m.ID}" class="btn-stunden text-xs bg-gray-100 hover:bg-gray-200 px-2 py-1 rounded">+ Std.</button>
         <button data-id="${m.ID}" class="btn-edit-maschine text-xs bg-gray-100 hover:bg-gray-200 px-2 py-1 rounded">Bearbeiten</button>
         <button data-id="${m.ID}" class="btn-kosten text-xs bg-gray-100 hover:bg-gray-200 px-2 py-1 rounded">Kosten</button>
         <button data-id="${m.ID}" class="btn-wartung text-xs bg-gray-100 hover:bg-gray-200 px-2 py-1 rounded">Wartung</button>
         <button data-id="${m.ID}" class="btn-dokumente text-xs bg-gray-100 hover:bg-gray-200 px-2 py-1 rounded">Dokumente</button>
-        <button data-id="${m.ID}" class="btn-qr text-xs bg-gray-100 hover:bg-gray-200 px-2 py-1 rounded">QR-Code</button>
+        ${m.FotoDriveFileID ? `<button data-id="${m.ID}" class="btn-foto-reparieren text-xs bg-gray-100 hover:bg-gray-200 px-2 py-1 rounded" title="Hilft, falls das Foto auf manchen Geräten nicht angezeigt wird">🔗 Foto-Link erneuern</button>` : ''}
         ${state.user.role === 'Admin' ? `<button data-id="${m.ID}" class="btn-delete-maschine text-xs text-red-600 hover:underline ml-auto">Löschen</button>` : ''}
       </div>
       </div>
@@ -1649,7 +1811,12 @@ async function loadFuhrparkSection() {
   grid.querySelectorAll('.btn-kosten').forEach(b => b.onclick = () => openMaschinenKostenDetail(state.maschinen.find(m => m.ID === b.dataset.id)));
   grid.querySelectorAll('.btn-wartung').forEach(b => b.onclick = () => openWartungsintervalleDetail(state.maschinen.find(m => m.ID === b.dataset.id)));
   grid.querySelectorAll('.btn-dokumente').forEach(b => b.onclick = () => openDokumenteDetail(state.maschinen.find(m => m.ID === b.dataset.id)));
-  grid.querySelectorAll('.btn-qr').forEach(b => b.onclick = () => openQrCodeModal(state.maschinen.find(m => m.ID === b.dataset.id)));
+  grid.querySelectorAll('.btn-foto-reparieren').forEach(b => b.onclick = async () => {
+    const m = state.maschinen.find(x => x.ID === b.dataset.id);
+    const saved = await safeCall('maschinen.update', { id: m.ID, FotoURL: `https://lh3.googleusercontent.com/d/${m.FotoDriveFileID}=w1000` }, 'Foto-Link erneuert.');
+    cacheUpsert('maschinen.list', saved);
+    await loadFuhrparkSection();
+  });
 
   document.getElementById('btnNeueMaschine').onclick = () => openMaschineModal();
 }
@@ -1675,9 +1842,11 @@ function openMaschineModal(initial = {}) {
       if (values.Foto) {
         const up = await Api.uploadFile(values.Foto, 'maschine');
         payload.FotoDriveFileID = up.fileId;
-        // up.url ist Drives Vorschauseite (gut als Link, aber nicht als <img src> darstellbar) -
-        // fürs direkte Einbetten als Bild braucht es Drives Thumbnail-Endpunkt.
-        payload.FotoURL = `https://drive.google.com/thumbnail?id=${up.fileId}&sz=w1000`;
+        // up.url ist Drives Vorschauseite (gut als Link, aber nicht als <img src> darstellbar).
+        // drive.google.com/thumbnail lieferte auf manchen Mobilgeräten/Browsern (abhängig von
+        // Cookie-Einstellungen) statt des Bildes eine Google-Zwischenseite - der googleusercontent-CDN
+        // -Link ist reines Bild-Hosting ohne Session-/Cookie-Abhängigkeit und funktioniert zuverlässiger.
+        payload.FotoURL = `https://lh3.googleusercontent.com/d/${up.fileId}=w1000`;
       }
       const saved = initial.ID
         ? await safeCall('maschinen.update', { id: initial.ID, ...payload }, 'Aktualisiert.')
@@ -1685,37 +1854,6 @@ function openMaschineModal(initial = {}) {
       cacheUpsert('maschinen.list', saved);
       await loadFuhrparkSection();
     }
-  });
-}
-
-// ---- QR-Code: druckbarer Code, der beim Scan die Schnellerfassung öffnet ----
-function openQrCodeModal(maschine) {
-  const url = `${location.origin}${location.pathname}?maschine=${encodeURIComponent(maschine.ID)}`;
-  openDetailModal(`QR-Code: ${maschine.Bezeichnung}`, (body) => {
-    body.innerHTML = `
-      <p class="text-sm text-gray-500">Ausdrucken und an der Maschine anbringen. Beim Scannen öffnet sich direkt die Schnellerfassung.</p>
-      <div class="flex flex-col items-center gap-3">
-        <canvas id="qrCanvas"></canvas>
-        <a id="qrDownload" download="${maschine.GeraeteNummer || maschine.Bezeichnung}-QR.png" class="text-blue-600 underline text-sm">Als Bild herunterladen</a>
-      </div>`;
-    QRCode.toCanvas(document.getElementById('qrCanvas'), url, { width: 240 }, () => {
-      document.getElementById('qrDownload').href = document.getElementById('qrCanvas').toDataURL('image/png');
-    });
-  });
-}
-
-function openMaschineSchnellerfassung(maschine) {
-  openDetailModal(`Schnellerfassung: ${maschine.Bezeichnung}`, (body) => {
-    body.innerHTML = `
-      <div class="text-sm text-gray-600">Aktuelle Betriebsstunden: <b>${Number(maschine.BetriebsstundenAktuell || 0).toFixed(1)}</b></div>
-      <div class="flex gap-2 flex-wrap">
-        <button id="qsStunden" class="bg-green-700 text-white px-3 py-2 rounded text-sm">+ Betriebsstunden</button>
-        <button id="qsWartung" class="bg-amber-600 text-white px-3 py-2 rounded text-sm">Wartungsintervalle</button>
-        <button id="qsKosten" class="bg-gray-600 text-white px-3 py-2 rounded text-sm">Kosten erfassen</button>
-      </div>`;
-    document.getElementById('qsStunden').onclick = () => quickAddStunden(maschine.ID);
-    document.getElementById('qsWartung').onclick = () => openWartungsintervalleDetail(maschine);
-    document.getElementById('qsKosten').onclick = () => openMaschinenKostenDetail(maschine);
   });
 }
 
@@ -1894,29 +2032,18 @@ function openIntervallModal(maschine, initial, reload) {
 // ============================================================================
 // VIEHHALTUNG
 // ============================================================================
-document.querySelectorAll('.vtab-btn').forEach(b => b.addEventListener('click', () => {
-  document.querySelectorAll('.vtab-btn').forEach(x => {
-    x.classList.toggle('border-green-700', x === b);
-    x.classList.toggle('text-gray-500', x !== b);
-  });
-  document.querySelectorAll('.vtab-panel').forEach(p => p.classList.add('hidden'));
-  document.getElementById('vtab-' + b.dataset.vtab).classList.remove('hidden');
-}));
-
 const TIERARTEN = ['Rind', 'Ziege', 'Schaf', 'Huhn', 'Sonstiges'];
 
 async function loadViehSection() {
-  const { tiere, tierkosten, tiererloese, tierbestand, zuchtereignisse } = await cachedBatch({
+  const { tiere, tierkosten, tiererloese, zuchtereignisse } = await cachedBatch({
     tiere: { action: 'tiere.list' },
     tierkosten: { action: 'tierkosten.list' },
     tiererloese: { action: 'tiererloese.list' },
-    tierbestand: { action: 'tierbestand.list' },
     zuchtereignisse: { action: 'zuchtereignisse.list' }
   });
   state.tiere = tiere;
   state.tierkosten = tierkosten;
   state.tiererloese = tiererloese;
-  state.tierbestand = tierbestand.filter(t => t.Aktiv !== false);
   state.zuchtereignisse = zuchtereignisse;
   renderZuchtErinnerungen();
 
@@ -1940,22 +2067,7 @@ async function loadViehSection() {
     });
   document.querySelectorAll('.btn-tier-buchungen').forEach(b => b.onclick = () => openTierBuchungenDetail(state.tiere.find(t => t.ID === b.dataset.id)));
 
-  renderTable(document.getElementById('bestandTable'),
-    [
-      { key: 'Tierart', label: 'Tierart' },
-      { key: 'Bezeichnung', label: 'Bezeichnung' },
-      { key: 'AnzahlAktuell', label: 'Anzahl aktuell' }
-    ],
-    state.tierbestand,
-    {
-      onEdit: (row) => openBestandModal(row),
-      onDelete: async (row) => { await safeCall('tierbestand.delete', { id: row.ID }, 'Gelöscht.'); cacheRemove('tierbestand.list', row.ID); await loadViehSection(); },
-      extraButtons: (row) => `<button data-id="${row.ID}" class="btn-bewegung text-green-700 hover:underline mr-2">Zu-/Abgang</button>`
-    });
-  document.querySelectorAll('.btn-bewegung').forEach(b => b.onclick = () => openBewegungModal(state.tierbestand.find(t => t.ID === b.dataset.id)));
-
   document.getElementById('btnNeuesTier').onclick = () => openTierModal();
-  document.getElementById('btnNeuerBestand').onclick = () => openBestandModal();
   document.getElementById('btnExportBestandsregister').onclick = () => exportBestandsregisterCsv();
 }
 
@@ -2165,45 +2277,6 @@ function openTierBuchungenDetail(tier) {
     });
 
     await reload();
-  });
-}
-
-function openBestandModal(initial = {}) {
-  openFormModal({
-    title: initial.ID ? 'Tierbestand bearbeiten' : 'Neuer Tierbestand',
-    fields: [
-      { key: 'Tierart', label: 'Tierart', type: 'select', options: TIERARTEN, required: true },
-      { key: 'Bezeichnung', label: 'Bezeichnung (z.B. Legehennen Stall 1)', required: true },
-      { key: 'AnzahlAktuell', label: 'Anzahl aktuell', type: 'number', required: true },
-      { key: 'Notiz', label: 'Notiz', type: 'textarea' }
-    ],
-    initial,
-    onSubmit: async (values) => {
-      const saved = initial.ID
-        ? await safeCall('tierbestand.update', { id: initial.ID, ...values }, 'Aktualisiert.')
-        : await safeCall('tierbestand.create', values, 'Tierbestand angelegt.');
-      cacheUpsert('tierbestand.list', saved);
-      await loadViehSection();
-    }
-  });
-}
-
-function openBewegungModal(bestand) {
-  openFormModal({
-    title: `Zu-/Abgang: ${bestand.Bezeichnung}`,
-    fields: [
-      { key: 'Datum', label: 'Datum', type: 'date', required: true },
-      { key: 'Typ', label: 'Typ', type: 'select', options: ['Zugang', 'Abgang', 'Verlust'] },
-      { key: 'Anzahl', label: 'Anzahl', type: 'number', required: true },
-      { key: 'Notiz', label: 'Notiz' }
-    ],
-    onSubmit: async (values) => {
-      await safeCall('tierbestandbewegungen.create', { TierbestandID: bestand.ID, ...values }, 'Bewegung erfasst.');
-      const delta = values.Typ === 'Zugang' ? Number(values.Anzahl) : -Number(values.Anzahl);
-      const saved = await safeCall('tierbestand.update', { id: bestand.ID, AnzahlAktuell: Number(bestand.AnzahlAktuell || 0) + delta });
-      cacheUpsert('tierbestand.list', saved);
-      await loadViehSection();
-    }
   });
 }
 

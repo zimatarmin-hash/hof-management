@@ -14,11 +14,12 @@
   },
 
   "Flaechen": {
-    "beschreibung": "Parzellen/Flächen des Betriebs inkl. Geometrie als GeoJSON-String. Rebsorte/AnzahlPflanzen sind nur bei Nutzungsart Weinbau/Obstbau relevant - solche Flächen erscheinen automatisch auch im Weinbau-Reiter als Rebanlage (Pflege/Reife/Ernte wird dann direkt unter der Flaeche.ID erfasst, ohne Umweg über eine separate SubFlaeche).",
-    "spalten": ["ID", "Name", "KatastralGemeinde", "Parzellennummer", "FlaecheHa", "Besitzart", "Nutzungsart", "Rebsorte", "AnzahlPflanzen", "GeoJSON", "Notiz", "ErstelltVon", "ErstelltAm", "Aktiv"],
+    "beschreibung": "Parzellen/Flächen des Betriebs inkl. Geometrie als GeoJSON-String. Rebsorte/AnzahlPflanzen sind nur bei Nutzungsart Weinbau/Obstbau relevant - solche Flächen erscheinen automatisch auch im Weinbau-Reiter als Rebanlage (Pflege/Reife/Ernte wird dann direkt unter der Flaeche.ID erfasst, ohne Umweg über eine separate SubFlaeche). ArbeitsablaufJSON definiert die Reihenfolge der Arbeitsschritte dieser Fläche (z.B. Pflügen/Grubbern/Säen oder 1./2./3. Schnitt) - Feldarbeiten protokolliert, wann welcher Schritt erledigt wurde; daraus wird automatisch der nächste anstehende Schritt ermittelt (Dashboard).",
+    "spalten": ["ID", "Name", "KatastralGemeinde", "Parzellennummer", "FlaecheHa", "Besitzart", "Nutzungsart", "Rebsorte", "AnzahlPflanzen", "ArbeitsablaufJSON", "GeoJSON", "Notiz", "ErstelltVon", "ErstelltAm", "Aktiv"],
     "hinweise": {
+      "ArbeitsablaufJSON": "JSON-Array von Schritt-Bezeichnungen in Reihenfolge, z.B. [\"Pflügen\",\"Grubbern\",\"Säen\",\"Ernten\"]",
       "Besitzart": "Besitz | Pacht",
-      "Nutzungsart": "Wald | Dauerwiese | Wechselwiese | Weinbau | Obstbau | Ackerland (alter Wert 'Obst-Weinbau' bleibt aus Altdaten gültig)",
+      "Nutzungsart": "Wald | Dauerwiese | Wechselwiese | Weinbau | Obstbau | Ackerland | Almweide (alter Wert 'Obst-Weinbau' bleibt aus Altdaten gültig)",
       "GeoJSON": "Vollständiges GeoJSON-Feature (Polygon/MultiPolygon) als Text gespeichert, WGS84 (EPSG:4326)",
       "Aktiv": "TRUE | FALSE - für 'weiche' Löschung"
     }
@@ -46,6 +47,11 @@
     "beschreibung": "Feldbuch Grünland: Schnitt-Dokumentation je Wiesenparzelle.",
     "spalten": ["ID", "FlaecheID", "SchnittNummer", "Datum", "Erntetyp", "ErtragsMenge", "ErtragsEinheit", "Notiz", "ErfasstVon", "ErfasstAm"],
     "hinweise": { "Erntetyp": "Heu | Silage | Grummet", "ErtragsEinheit": "Rundballen | Quaderballen | Tonnen" }
+  },
+
+  "Feldarbeiten": {
+    "beschreibung": "Log erledigter Arbeitsschritte je Fläche (frei definierbar über Flaechen.ArbeitsablaufJSON, z.B. Pflügen/Grubbern/Säen). Wird pro Kalenderjahr betrachtet, um den nächsten anstehenden Schritt zu ermitteln.",
+    "spalten": ["ID", "FlaecheID", "Schritt", "Datum", "Notiz", "ErfasstVon", "ErfasstAm"]
   },
 
   "Duengungen": {
