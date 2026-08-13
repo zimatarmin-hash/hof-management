@@ -53,7 +53,8 @@
   }
 
   /* ---- Dashboard: touchfähige, aufklappbare Kacheln ---- */
-  #dashboardGrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 0.875rem; align-items: start; }
+  /* Mobil: zwei Kacheln nebeneinander statt einer langen Liste - mehr auf einen Blick. */
+  #dashboardGrid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0.75rem; align-items: start; }
   .dash-tile { background: white; border-radius: 1rem; box-shadow: 0 1px 3px rgba(0,0,0,0.08); overflow: hidden; }
   .dash-tile-head { display: flex; align-items: center; gap: 0.75rem; padding: 1rem; -webkit-tap-highlight-color: transparent; }
   .dash-tile:not(.dash-tile-static) .dash-tile-head { cursor: pointer; }
@@ -76,6 +77,22 @@
   .dash-day { flex: 0 0 auto; min-width: 3.4rem; text-align: center; font-size: 0.7rem; color: #6b7280; }
   .dash-day .dash-day-icon { font-size: 1.4rem; }
   .dash-day .dash-day-temp { font-size: 0.75rem; color: #1f2937; font-weight: 600; }
+
+  /* Ab Tablet/Desktop: mehr Spalten, größere Kacheln, Details gleich sichtbar statt
+     eingeklappt - am Bildschirm ist genug Platz, um möglichst viel auf einen Blick zu zeigen. */
+  @media (min-width: 640px) {
+    #dashboardGrid { grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 1rem; }
+  }
+  @media (min-width: 1024px) {
+    #dashboardGrid { grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 1.25rem; }
+    .dash-tile-head { padding: 1.25rem; gap: 1rem; }
+    .dash-tile-icon { font-size: 2.25rem; }
+    .dash-tile-value { font-size: 1.5rem; }
+    .dash-tile-title { font-size: 0.8rem; }
+    .dash-tile-details-wrap { grid-template-rows: 1fr; }
+    .dash-tile-details { padding-bottom: 1.25rem; }
+    .dash-tile:not(.dash-tile-static) .dash-tile-chevron { opacity: 0.35; }
+  }
 </style>
 </head>
 <body class="bg-gray-50 text-gray-800">
@@ -124,10 +141,10 @@
   </header>
 
   <div class="flex flex-1 overflow-hidden relative">
-    <div id="navBackdrop" class="hidden fixed inset-0 h-dvh bg-black/40 z-40"></div>
+    <div id="navBackdrop" class="hidden fixed inset-0 h-dvh bg-black/40 z-[9998]"></div>
 
     <!-- Navigation -->
-    <nav id="mainNav" class="hidden md:flex w-64 md:w-56 bg-white border-r p-3 flex-col gap-1 shrink-0 fixed md:static top-[57px] h-[calc(100dvh-57px)] md:h-auto left-0 z-50 overflow-y-auto shadow-2xl md:shadow-none">
+    <nav id="mainNav" class="hidden md:flex w-64 md:w-56 bg-white border-r p-3 flex-col gap-1 shrink-0 fixed md:static top-[57px] h-[calc(100dvh-57px)] md:h-auto left-0 z-[9999] overflow-y-auto shadow-2xl md:shadow-none">
       <button data-section="dashboard" class="nav-btn text-left px-3 py-2 rounded hover:bg-green-100">📊 Dashboard</button>
       <button data-section="flaechen" class="nav-btn text-left px-3 py-2 rounded hover:bg-green-100">🗺️ Flächen</button>
       <button data-section="fuhrpark" class="nav-btn text-left px-3 py-2 rounded hover:bg-green-100">🚜 Fuhrpark</button>

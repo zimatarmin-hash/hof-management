@@ -483,7 +483,7 @@ document.getElementById('dashboardGrid').addEventListener('click', (e) => {
 });
 
 async function loadDashboard() {
-  const { s, maschinen, intervalle, futtermittel, tanks, flaschenbestand, flaechen, fruchtfolge, feldarbeiten } = await cachedBatch({
+  const { s, maschinen, intervalle, futtermittel, tanks, flaschenbestand, flaechen, fruchtfolge, feldarbeiten, tiere } = await cachedBatch({
     s: { action: 'dashboard.summary' },
     maschinen: { action: 'maschinen.list' },
     intervalle: { action: 'wartungsintervalle.list' },
@@ -492,18 +492,24 @@ async function loadDashboard() {
     flaschenbestand: { action: 'flaschenbestand.list' },
     flaechen: { action: 'flaechen.list' },
     fruchtfolge: { action: 'fruchtfolge.list' },
-    feldarbeiten: { action: 'feldarbeiten.list' }
+    feldarbeiten: { action: 'feldarbeiten.list' },
+    tiere: { action: 'tiere.list' }
   });
   state.maschinen = maschinen.filter(m => m.Aktiv !== false);
   state.wartungsintervalle = intervalle;
   const futtermittelAktiv = futtermittel.filter(f => f.Aktiv !== false);
   const flaschenbestandAktiv = flaschenbestand.filter(f => f.Aktiv !== false && Number(f.AnzahlAktuell || 0) > 0);
   const flaechenAktiv = flaechen.filter(f => f.Aktiv !== false);
+  const tiereLebend = tiere.filter(t => t.Status === 'Lebend');
 
   const tiles = [];
 
-  tiles.push(dashTileHtml({ id: 'saldo', icon: '💶', title: 'Saldo', value: euro(s.finanzen.saldo), sub: 'Erlöse - Kosten gesamt' }));
-  tiles.push(dashTileHtml({ id: 'tiere', icon: '🐄', title: 'Tiere', value: s.tiereAnzahl, sub: 'Einzeltiere (lebend)' }));
+  tiles.push(dashTileHtml({
+    id: 'tiere', icon: '🐄', title: 'Tiere', value: tiereLebend.length, sub: 'Einzeltiere (lebend)',
+    details: tiereLebend.length
+      ? tiereLebend.map(t => drow(`${t.Name || t.Ohrmarke || 'unbenannt'} <span class="text-gray-400">(${t.Tierart})</span>`, t.Rasse || '')).join('')
+      : '<p class="text-gray-400 text-sm py-2">Keine Tiere erfasst.</p>'
+  }));
 
   // ---- Flächen nach Nutzung/Kultur ----
   const haVon = (arr) => arr.reduce((sum, f) => sum + Number(f.FlaecheHa || 0), 0);
