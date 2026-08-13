@@ -51,6 +51,31 @@
   @media (max-width: 767px) {
     #mainNav.nav-open { display: flex !important; flex-direction: column; }
   }
+
+  /* ---- Dashboard: touchfähige, aufklappbare Kacheln ---- */
+  #dashboardGrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 0.875rem; align-items: start; }
+  .dash-tile { background: white; border-radius: 1rem; box-shadow: 0 1px 3px rgba(0,0,0,0.08); overflow: hidden; }
+  .dash-tile-head { display: flex; align-items: center; gap: 0.75rem; padding: 1rem; -webkit-tap-highlight-color: transparent; }
+  .dash-tile:not(.dash-tile-static) .dash-tile-head { cursor: pointer; }
+  .dash-tile:not(.dash-tile-static) .dash-tile-head:hover { background: #f9fafb; }
+  .dash-tile-icon { font-size: 1.75rem; line-height: 1; flex-shrink: 0; }
+  .dash-tile-summary { min-width: 0; flex: 1; }
+  .dash-tile-title { font-size: 0.75rem; color: #6b7280; }
+  .dash-tile-value { font-size: 1.25rem; font-weight: 700; color: #1f2937; line-height: 1.3; }
+  .dash-tile-sub { font-size: 0.7rem; color: #9ca3af; }
+  .dash-tile-chevron { color: #9ca3af; transition: transform .2s; font-size: 1.1rem; flex-shrink: 0; }
+  .dash-tile.expanded .dash-tile-chevron { transform: rotate(90deg); }
+  .dash-tile-details-wrap { display: grid; grid-template-rows: 0fr; transition: grid-template-rows .25s ease; }
+  .dash-tile.expanded .dash-tile-details-wrap { grid-template-rows: 1fr; }
+  .dash-tile-details { overflow: hidden; padding: 0 1rem; }
+  .dash-tile.expanded .dash-tile-details { padding-bottom: 1rem; }
+  .dash-tile-details .drow { display: flex; justify-content: space-between; gap: 0.5rem; padding: 0.15rem 0; }
+  .dash-tile-alert .dash-tile-head { background: #fef2f2; }
+  .dash-tile-alert .dash-tile-value { color: #b91c1c; }
+  .dash-day-strip { display: flex; gap: 0.4rem; overflow-x: auto; padding: 0.25rem 0; }
+  .dash-day { flex: 0 0 auto; min-width: 3.4rem; text-align: center; font-size: 0.7rem; color: #6b7280; }
+  .dash-day .dash-day-icon { font-size: 1.4rem; }
+  .dash-day .dash-day-temp { font-size: 0.75rem; color: #1f2937; font-weight: 600; }
 </style>
 </head>
 <body class="bg-gray-50 text-gray-800">
@@ -120,32 +145,7 @@
       <!-- DASHBOARD -->
       <section id="section-dashboard" class="app-section space-y-4">
         <h2 class="text-2xl font-extrabold text-gray-800 tracking-tight">Dashboard</h2>
-        <div id="dashboardCards" class="grid grid-cols-2 md:grid-cols-4 gap-4"></div>
-        <div id="dashboardFlaechenBox" class="hidden bg-white rounded-xl shadow p-4">
-          <h3 class="font-semibold mb-2">🗺️ Flächen nach Nutzung</h3>
-          <div id="dashboardFlaechenInhalt" class="text-sm text-gray-600 space-y-1"></div>
-        </div>
-        <div id="dashboardArbeitenBox" class="hidden bg-white rounded-xl shadow p-4">
-          <h3 class="font-semibold mb-2">🚜 Anstehende Bearbeitungen</h3>
-          <div id="dashboardArbeitenInhalt" class="text-sm text-gray-600 space-y-1"></div>
-        </div>
-        <div id="dashboardWartungsAlarm" class="hidden bg-red-50 border border-red-300 text-red-800 rounded-xl p-4 text-sm space-y-1"></div>
-        <div id="dashboardFuttermittelBox" class="hidden bg-white rounded-xl shadow p-4">
-          <h3 class="font-semibold mb-2">🌾 Futtermittel im Lager</h3>
-          <div id="dashboardFuttermittelInhalt" class="text-sm text-gray-600 space-y-1"></div>
-        </div>
-        <div id="dashboardKellerBox" class="hidden bg-white rounded-xl shadow p-4">
-          <h3 class="font-semibold mb-2">🍷 Keller</h3>
-          <div id="dashboardKellerInhalt" class="text-sm text-gray-600 space-y-1"></div>
-        </div>
-        <div id="dashboardWetterBox" class="hidden bg-white rounded-xl shadow p-4">
-          <h3 class="font-semibold mb-2">🌦️ Wetter &amp; Boden (Dauergrünland)</h3>
-          <div id="dashboardWetterInhalt" class="text-sm text-gray-600"></div>
-        </div>
-        <div class="bg-white rounded-xl shadow p-4">
-          <h3 class="font-semibold mb-2">Gerade aktiv</h3>
-          <div id="dashboardActiveUsers" class="text-sm text-gray-600"></div>
-        </div>
+        <div id="dashboardGrid"></div>
       </section>
 
       <!-- FLÄCHEN -->

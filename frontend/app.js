@@ -452,8 +452,38 @@ async function refreshActiveUsersLabel() {
 // ============================================================================
 // DASHBOARD
 // ============================================================================
+// Eine Dashboard-Kachel als HTML-String. Ohne "details" ist sie eine reine Stat-Anzeige
+// (nicht aufklappbar); mit "details" bekommt sie einen Chevron und lässt sich per Klick/
+// Touch aufklappen (siehe delegierter Click-Handler weiter unten).
+function dashTileHtml({ id, icon, title, value, sub, details, alert }) {
+  const expandable = details !== undefined && details !== null;
+  return `<div class="dash-tile${expandable ? '' : ' dash-tile-static'}${alert ? ' dash-tile-alert' : ''}" data-tile-id="${id}">
+    <div class="dash-tile-head">
+      <div class="dash-tile-icon" id="dashIcon-${id}">${icon}</div>
+      <div class="dash-tile-summary">
+        <div class="dash-tile-title">${title}</div>
+        <div class="dash-tile-value" id="dashVal-${id}">${value}</div>
+        ${sub !== undefined ? `<div class="dash-tile-sub" id="dashSub-${id}">${sub}</div>` : ''}
+      </div>
+      ${expandable ? '<div class="dash-tile-chevron">›</div>' : ''}
+    </div>
+    ${expandable ? `<div class="dash-tile-details-wrap"><div class="dash-tile-details" id="dashDet-${id}">${details}</div></div>` : ''}
+  </div>`;
+}
+function drow(label, value) {
+  return `<div class="drow"><span>${label}</span><b>${value}</b></div>`;
+}
+// Ein einziger delegierter Click-Handler statt einzelner Listener pro Kachel - bleibt auch
+// gültig, wenn einzelne Kachel-Inhalte später asynchron nachgeladen/gepatcht werden (Wetter).
+document.getElementById('dashboardGrid').addEventListener('click', (e) => {
+  const head = e.target.closest('.dash-tile-head');
+  if (!head) return;
+  const tile = head.closest('.dash-tile');
+  if (!tile.classList.contains('dash-tile-static')) tile.classList.toggle('expanded');
+});
+
 async function loadDashboard() {
-  const { s, maschinen, intervalle, futtermittel, tanks, flaschenbestand, flaechen, fruchtfolge } = await cachedBatch({
+  const { s, maschinen, intervalle, futtermittel, tanks, flaschenbestand, flaechen, fruchtfolge, feldarbeiten } = await cachedBatch({
     s: { action: 'dashboard.summary' },
     maschinen: { action: 'maschinen.list' },
     intervalle: { action: 'wartungsintervalle.list' },
@@ -461,7 +491,8 @@ async function loadDashboard() {
     tanks: { action: 'tanks.list' },
     flaschenbestand: { action: 'flaschenbestand.list' },
     flaechen: { action: 'flaechen.list' },
-    fruchtfolge: { action: 'fruchtfolge.list' }
+    fruchtfolge: { action: 'fruchtfolge.list' },
+    feldarbeiten: { action: 'feldarbeiten.list' }
   });
   state.maschinen = maschinen.filter(m => m.Aktiv !== false);
   state.wartungsintervalle = intervalle;
@@ -469,17 +500,10 @@ async function loadDashboard() {
   const flaschenbestandAktiv = flaschenbestand.filter(f => f.Aktiv !== false && Number(f.AnzahlAktuell || 0) > 0);
   const flaechenAktiv = flaechen.filter(f => f.Aktiv !== false);
 
-  const cards = [
-    ['Flächen', `${s.flaecheGesamtHa.toFixed(2)} ha`, `${s.flaechenAnzahl} Parzellen`],
-    ['Tiere', s.tiereAnzahl, 'Einzeltiere (lebend)'],
-    ['Saldo', euro(s.finanzen.saldo), 'Erlöse - Kosten gesamt']
-  ];
-  document.getElementById('dashboardCards').innerHTML = cards.map(c => `
-    <div class="bg-white rounded-xl shadow p-4">
-      <div class="text-gray-500 text-sm">${c[0]}</div>
-      <div class="text-2xl font-bold">${c[1]}</div>
-      <div class="text-gray-400 text-xs">${c[2]}</div>
-    </div>`).join('');
+  const tiles = [];
+
+  tiles.push(dashTileHtml({ id: 'saldo', icon: '💶', title: 'Saldo', value: euro(s.finanzen.saldo), sub: 'Erlöse - Kosten gesamt' }));
+  tiles.push(dashTileHtml({ id: 'tiere', icon: '🐄', title: 'Tiere', value: s.tiereAnzahl, sub: 'Einzeltiere (lebend)' }));
 
   // ---- Flächen nach Nutzung/Kultur ----
   const haVon = (arr) => arr.reduce((sum, f) => sum + Number(f.FlaecheHa || 0), 0);
@@ -496,100 +520,134 @@ async function loadDashboard() {
     const kultur = zuweisung ? zuweisung.Kultur : 'ohne Zuweisung';
     ackerlandProKultur[kultur] = (ackerlandProKultur[kultur] || 0) + Number(f.FlaecheHa || 0);
   });
-  const flaechenZeile = (label, ha) => `<div class="flex justify-between"><span>${label}</span><b>${ha.toFixed(2)} ha</b></div>`;
-  const flaechenZeilen = [
-    flaechenZeile('Insgesamt', haVon(flaechenAktiv)),
-    flaechenZeile('🌾 Grünland', haVon(gruenland)),
-    flaechenZeile('🍇 Weinbau', haVon(weinbau))
-  ];
-  if (obstbau.length) flaechenZeilen.push(flaechenZeile('🍎 Obstbau', haVon(obstbau)));
-  flaechenZeilen.push(flaechenZeile('🌱 Ackerland', haVon(ackerland)));
-  Object.entries(ackerlandProKultur).forEach(([kultur, ha]) => {
-    flaechenZeilen.push(`<div class="flex justify-between pl-4 text-xs text-gray-500"><span>↳ ${kultur}</span><span>${ha.toFixed(2)} ha</span></div>`);
-  });
-  flaechenZeilen.push(flaechenZeile('🌲 Wald', haVon(wald)));
-  flaechenZeilen.push(flaechenZeile('⛰️ Almweide', haVon(almweide)));
-  document.getElementById('dashboardFlaechenInhalt').innerHTML = flaechenZeilen.join('');
-  document.getElementById('dashboardFlaechenBox').classList.remove('hidden');
+  const flaechenDetails = [
+    drow('Insgesamt', `${haVon(flaechenAktiv).toFixed(2)} ha`),
+    drow('🌾 Grünland', `${haVon(gruenland).toFixed(2)} ha`),
+    drow('🍇 Weinbau', `${haVon(weinbau).toFixed(2)} ha`),
+    obstbau.length ? drow('🍎 Obstbau', `${haVon(obstbau).toFixed(2)} ha`) : '',
+    drow('🌱 Ackerland', `${haVon(ackerland).toFixed(2)} ha`),
+    ...Object.entries(ackerlandProKultur).map(([kultur, ha]) => `<div class="drow pl-4 text-xs text-gray-500"><span>↳ ${kultur}</span><span>${ha.toFixed(2)} ha</span></div>`),
+    drow('🌲 Wald', `${haVon(wald).toFixed(2)} ha`),
+    drow('⛰️ Almweide', `${haVon(almweide).toFixed(2)} ha`)
+  ].join('');
+  tiles.push(dashTileHtml({ id: 'flaechen', icon: '🗺️', title: 'Flächen', value: `${s.flaecheGesamtHa.toFixed(2)} ha`, sub: `${s.flaechenAnzahl} Parzellen`, details: flaechenDetails }));
 
-  const alarmBox = document.getElementById('dashboardWartungsAlarm');
-  const alarme = state.maschinen
-    .map(m => ({ m, ...computeAmpelStatus(m, intervalle) }))
-    .filter(x => x.status !== 'green');
+  // ---- Anstehende Bearbeitungen (Arbeitsabläufe je Fläche) ----
+  const anstehend = flaechenAktiv
+    .filter(f => hatArbeitsablauf(f))
+    .map(f => ({ f, naechster: naechsterArbeitsschritt(f, feldarbeiten, jahr) }))
+    .filter(x => x.naechster);
+  if (anstehend.length) {
+    tiles.push(dashTileHtml({
+      id: 'arbeiten', icon: '🚜', title: 'Anstehende Bearbeitungen', value: anstehend.length, sub: 'Flächen mit offenem Schritt',
+      details: anstehend.map(x => drow(x.f.Name, x.naechster)).join('')
+    }));
+  }
+
+  // ---- Wartungsalarm ----
+  const alarme = state.maschinen.map(m => ({ m, ...computeAmpelStatus(m, intervalle) })).filter(x => x.status !== 'green');
   if (alarme.length) {
-    alarmBox.classList.remove('hidden');
-    alarmBox.innerHTML = '<b>⚠️ Wartungen fällig/bald fällig:</b>' + alarme.map(a =>
-      `<div>${a.status === 'red' ? '🔴' : '🟡'} <b>${a.m.Bezeichnung}</b>: ${a.hinweise.join(' · ')}</div>`).join('');
-  } else {
-    alarmBox.classList.add('hidden');
+    tiles.push(dashTileHtml({
+      id: 'wartung', icon: '🔧', title: 'Wartung', value: alarme.length, sub: 'fällig / bald fällig', alert: true,
+      details: alarme.map(a => drow(`${a.status === 'red' ? '🔴' : '🟡'} ${a.m.Bezeichnung}`, a.hinweise.join(' · '))).join('')
+    }));
   }
 
   // ---- Futtermittel konkret (was, wie viel) statt nur Sortenanzahl ----
-  const futterBox = document.getElementById('dashboardFuttermittelBox');
   if (futtermittelAktiv.length) {
-    futterBox.classList.remove('hidden');
-    document.getElementById('dashboardFuttermittelInhalt').innerHTML = futtermittelAktiv.map(f => {
-      const knapp = f.MindestBestand && Number(f.BestandAktuell || 0) < Number(f.MindestBestand);
-      return `<div class="flex justify-between ${knapp ? 'text-red-600 font-semibold' : ''}"><span>${f.Bezeichnung}</span><span>${Number(f.BestandAktuell || 0).toFixed(1)} ${f.Einheit}${knapp ? ' ⚠️' : ''}</span></div>`;
-    }).join('');
-  } else {
-    futterBox.classList.add('hidden');
+    const knapp = futtermittelAktiv.filter(f => f.MindestBestand && Number(f.BestandAktuell || 0) < Number(f.MindestBestand));
+    tiles.push(dashTileHtml({
+      id: 'futter', icon: '🌾', title: 'Futtermittel', value: `${futtermittelAktiv.length} Sorten`, sub: knapp.length ? `${knapp.length} knapp ⚠️` : 'Bestand ok', alert: knapp.length > 0,
+      details: futtermittelAktiv.map(f => {
+        const istKnapp = f.MindestBestand && Number(f.BestandAktuell || 0) < Number(f.MindestBestand);
+        return `<div class="drow${istKnapp ? ' text-red-600 font-semibold' : ''}"><span>${f.Bezeichnung}</span><b>${Number(f.BestandAktuell || 0).toFixed(1)} ${f.Einheit}${istKnapp ? ' ⚠️' : ''}</b></div>`;
+      }).join('')
+    }));
   }
 
   // ---- Keller konkret (Fässer mit Inhalt + Flaschenbestand je Sorte/Jahrgang) ----
-  const kellerBox = document.getElementById('dashboardKellerBox');
   const fassMitInhalt = tanks.filter(t => t.Aktiv !== false && Number(t.AktuellerInhaltLiter || 0) > 0);
   if (fassMitInhalt.length || flaschenbestandAktiv.length) {
-    kellerBox.classList.remove('hidden');
-    const fassZeilen = fassMitInhalt.map(t =>
-      `<div class="flex justify-between"><span>🛢️ ${t.Bezeichnung}${t.Sorte ? ` (${t.Sorte}${t.Jahrgang ? ' ' + t.Jahrgang : ''})` : ''}</span><span>${Number(t.AktuellerInhaltLiter || 0).toFixed(0)} l</span></div>`);
-    const flaschenZeilen = flaschenbestandAktiv.map(f =>
-      `<div class="flex justify-between"><span>🍾 ${f.Bezeichnung}</span><span>${f.AnzahlAktuell} Flaschen</span></div>`);
-    document.getElementById('dashboardKellerInhalt').innerHTML = [...fassZeilen, ...flaschenZeilen].join('');
-  } else {
-    kellerBox.classList.add('hidden');
+    const literGesamt = fassMitInhalt.reduce((sum, t) => sum + Number(t.AktuellerInhaltLiter || 0), 0);
+    const flaschenGesamt = flaschenbestandAktiv.reduce((sum, f) => sum + Number(f.AnzahlAktuell || 0), 0);
+    const kellerDetails = [
+      ...fassMitInhalt.map(t => drow(`🛢️ ${t.Bezeichnung}${t.Sorte ? ` (${t.Sorte}${t.Jahrgang ? ' ' + t.Jahrgang : ''})` : ''}`, `${Number(t.AktuellerInhaltLiter || 0).toFixed(0)} l`)),
+      ...flaschenbestandAktiv.map(f => drow(`🍾 ${f.Bezeichnung}`, `${f.AnzahlAktuell} Flaschen`))
+    ].join('');
+    tiles.push(dashTileHtml({ id: 'keller', icon: '🍷', title: 'Keller', value: `${literGesamt.toFixed(0)} l`, sub: `${flaschenGesamt} Flaschen`, details: kellerDetails }));
   }
 
-  const activeEl = document.getElementById('dashboardActiveUsers');
-  activeEl.innerHTML = s.aktiveNutzer.length
-    ? s.aktiveNutzer.map(u => `<div>🟢 ${u.name} — zuletzt aktiv ${fmtDate(u.lastSeen)} ${new Date(u.lastSeen).toLocaleTimeString('de-DE')}</div>`).join('')
-    : '<p class="text-gray-400">Aktuell sonst niemand aktiv.</p>';
+  // ---- Wetter: Platzhalter, wird gleich unten asynchron befüllt (externe API) ----
+  tiles.push(dashTileHtml({
+    id: 'wetter', icon: '🌦️', title: 'Wetter (Grünland)', value: 'Lädt …', sub: '',
+    details: '<p class="text-gray-400 text-sm py-2">Wetterdaten werden geladen …</p>'
+  }));
+
+  // ---- Gerade aktiv ----
+  tiles.push(dashTileHtml({
+    id: 'aktiv', icon: '👥', title: 'Gerade aktiv', value: s.aktiveNutzer.length, sub: s.aktiveNutzer.length ? s.aktiveNutzer.map(u => u.name).join(', ') : 'niemand sonst aktiv',
+    details: s.aktiveNutzer.length
+      ? s.aktiveNutzer.map(u => drow(u.name, `${fmtDate(u.lastSeen)} ${new Date(u.lastSeen).toLocaleTimeString('de-DE')}`)).join('')
+      : '<p class="text-gray-400 text-sm py-2">Aktuell sonst niemand aktiv.</p>'
+  }));
+
+  document.getElementById('dashboardGrid').innerHTML = tiles.join('');
 
   loadWetterBox();
-  loadArbeitenBox();
+}
+
+// WMO-Wettercode -> Emoji, damit die Wetterkachel wie eine normale Wetter-App aussieht
+// statt nur Zahlen zu zeigen (https://open-meteo.com/en/docs -> WMO Weather interpretation codes).
+function weatherIcon(code) {
+  if (code === 0) return '☀️';
+  if (code === 1 || code === 2) return '🌤️';
+  if (code === 3) return '☁️';
+  if (code === 45 || code === 48) return '🌫️';
+  if ([51, 53, 55, 56, 57].includes(code)) return '🌦️';
+  if ([61, 63, 65, 66, 67, 80, 81, 82].includes(code)) return '🌧️';
+  if ([71, 73, 75, 77, 85, 86].includes(code)) return '🌨️';
+  if ([95, 96, 99].includes(code)) return '⛈️';
+  return '🌡️';
 }
 
 // Wetter/Boden-Übersicht für den Koordinaten-Mittelwert der Dauergrünwiesen (Open-Meteo,
 // kein API-Key nötig). Läuft bewusst NICHT über cachedList/cachedBatch - Wetterdaten
 // sollen bei jedem Dashboard-Aufruf frisch sein, nicht aus dem Sitzungs-Cache kommen.
+// Patcht die schon gerenderte Wetter-Kachel gezielt (id "wetter"), statt die ganze
+// Dashboard-Kachel-Liste neu aufzubauen - der Fetch ist langsamer als der Rest.
 async function loadWetterBox() {
-  const box = document.getElementById('dashboardWetterBox');
-  const inhalt = document.getElementById('dashboardWetterInhalt');
+  const valEl = document.getElementById('dashVal-wetter');
+  const subEl = document.getElementById('dashSub-wetter');
+  const detEl = document.getElementById('dashDet-wetter');
+  const iconEl = document.getElementById('dashIcon-wetter');
+  if (!valEl) return;
   try {
     const flaechen = await cachedList('flaechen.list');
     const dauerwiesen = flaechen.filter(f => f.Nutzungsart === 'Dauerwiese' && f.GeoJSON);
     const quelle = dauerwiesen.length ? dauerwiesen : flaechen.filter(f => f.GeoJSON);
-    if (!quelle.length) { box.classList.add('hidden'); return; }
+    if (!quelle.length) { valEl.textContent = 'keine Fläche'; detEl.innerHTML = '<p class="text-gray-400 text-sm py-2">Keine Fläche mit Geometrie hinterlegt.</p>'; return; }
     const zentren = quelle.map(f => {
       try { return computeCentroid(JSON.parse(f.GeoJSON)); } catch (e) { return null; }
     }).filter(Boolean);
-    if (!zentren.length) { box.classList.add('hidden'); return; }
+    if (!zentren.length) { valEl.textContent = 'keine Fläche'; return; }
     const lat = zentren.reduce((sum, p) => sum + p.lat, 0) / zentren.length;
     const lng = zentren.reduce((sum, p) => sum + p.lng, 0) / zentren.length;
 
     // "Jetzt" kommt aus dem Standard-Blendmodell (best_match) - für einen Momentanwert
     // ergibt eine Mittelung über mehrere Vorhersagemodelle keinen Sinn, nur für die
     // Tage-Vorhersage weiter unten.
-    const aktuellUrl = `https://api.open-meteo.com/v1/forecast?latitude=${lat.toFixed(4)}&longitude=${lng.toFixed(4)}&current=temperature_2m,precipitation&timezone=auto`;
+    const aktuellUrl = `https://api.open-meteo.com/v1/forecast?latitude=${lat.toFixed(4)}&longitude=${lng.toFixed(4)}&current=temperature_2m,precipitation,weather_code&timezone=auto`;
     const aktuellRes = await fetch(aktuellUrl);
     const aktuellData = aktuellRes.ok ? await aktuellRes.json() : null;
 
     // 7-Tage-Vorhersage (heute + 6 Tage) aus mehreren unabhängigen Wettermodellen
     // gemittelt (deutsches ICON, europäisches ECMWF, amerikanisches GFS) - näherungsweise
     // das, was mit mehreren "verlässlichen Quellen" gemeint ist, ohne dass dafür separate
-    // kostenpflichtige/Key-basierte Wetterdienste nötig wären.
+    // kostenpflichtige/Key-basierte Wetterdienste nötig wären. Der Wettercode (für die
+    // Icons) wird nicht gemittelt - dafür wird nur das erste Modell herangezogen, da
+    // sich Wetterlagen-Kategorien nicht sinnvoll zahlenmäßig mitteln lassen.
     const MODELLE = ['icon_seamless', 'ecmwf_ifs025', 'gfs_seamless'];
-    const url = `https://api.open-meteo.com/v1/forecast?latitude=${lat.toFixed(4)}&longitude=${lng.toFixed(4)}&daily=precipitation_sum,precipitation_probability_max,sunshine_duration,temperature_2m_max,temperature_2m_min,et0_fao_evapotranspiration&past_days=7&forecast_days=7&timezone=auto&models=${MODELLE.join(',')}`;
+    const url = `https://api.open-meteo.com/v1/forecast?latitude=${lat.toFixed(4)}&longitude=${lng.toFixed(4)}&daily=precipitation_sum,precipitation_probability_max,sunshine_duration,temperature_2m_max,temperature_2m_min,et0_fao_evapotranspiration,weather_code&past_days=7&forecast_days=7&timezone=auto&models=${MODELLE.join(',')}`;
     const res = await fetch(url);
     if (!res.ok) throw new Error('Wetterdienst nicht erreichbar');
     const data = await res.json();
@@ -624,48 +682,43 @@ async function loadWetterBox() {
       }
     }
 
+    const wettercodeTage = data.daily[`weather_code_${MODELLE[0]}`] || [];
     const naechsten7 = [];
     for (let i = heuteIdx; i < Math.min(heuteIdx + 7, tage.length); i++) {
-      naechsten7.push({ datum: tage[i], regenWk: niederschlagWk[i], regenMm: niederschlag[i], sonne: sonnenstunden[i], tempMax: tempMax[i], tempMin: tempMin[i] });
+      naechsten7.push({ datum: tage[i], code: wettercodeTage[i], regenWk: niederschlagWk[i], regenMm: niederschlag[i], sonne: sonnenstunden[i], tempMax: tempMax[i], tempMin: tempMin[i] });
     }
 
-    const aktuellHtml = (aktuellData && aktuellData.current)
-      ? `<div class="mb-2"><b>Jetzt:</b> ${aktuellData.current.temperature_2m.toFixed(1)}°C${aktuellData.current.precipitation > 0 ? ` · ${aktuellData.current.precipitation} mm Niederschlag` : ''}</div>`
-      : '';
+    const jetztCode = aktuellData && aktuellData.current ? aktuellData.current.weather_code : null;
+    if (iconEl && jetztCode !== null && jetztCode !== undefined) iconEl.textContent = weatherIcon(jetztCode);
+    valEl.textContent = (aktuellData && aktuellData.current) ? `${aktuellData.current.temperature_2m.toFixed(0)}°C` : '–';
+    subEl.textContent = maehfenster
+      ? `Mähfenster: ${fmtDate(maehfenster.von)}–${fmtDate(maehfenster.bis)}`
+      : `${niederschlag7.toFixed(0)} mm Regen (7 Tage)`;
 
-    const tagesTabelle = `
-      <div class="overflow-x-auto mt-2">
-        <table class="min-w-full text-xs text-center">
-          <thead><tr class="text-gray-400">
-            <th class="text-left pb-1">Tag</th><th>🌧️ Chance</th><th>Regen</th><th>☀️ Std.</th><th>Temp</th>
-          </tr></thead>
-          <tbody>
-            ${naechsten7.map((t, i) => `<tr class="border-t">
-              <td class="text-left py-1">${i === 0 ? 'Heute' : new Date(t.datum).toLocaleDateString('de-DE', { weekday: 'short' })}</td>
-              <td>${t.regenWk !== null ? Math.round(t.regenWk) + '%' : '-'}</td>
-              <td>${t.regenMm !== null ? t.regenMm.toFixed(1) + 'mm' : '-'}</td>
-              <td>${t.sonne !== null ? t.sonne.toFixed(1) + 'h' : '-'}</td>
-              <td>${t.tempMax !== null ? Math.round(t.tempMin) + '°/' + Math.round(t.tempMax) + '°' : '-'}</td>
-            </tr>`).join('')}
-          </tbody>
-        </table>
-      </div>`;
+    // Kompakter Tagesstreifen mit Icons (wie in einer normalen Wetter-App) - die genauen
+    // Werte (Sonnenstunden, Verdunstung, Regenmenge) gibt es erst in der aufgeklappten Kachel.
+    const tagStreifen = naechsten7.map((t, i) => `
+      <div class="dash-day">
+        <div>${i === 0 ? 'Heute' : new Date(t.datum).toLocaleDateString('de-DE', { weekday: 'short' })}</div>
+        <div class="dash-day-icon">${t.code !== undefined ? weatherIcon(t.code) : '🌡️'}</div>
+        <div class="dash-day-temp">${t.tempMax !== null ? Math.round(t.tempMax) + '°' : '-'}</div>
+        <div>${t.regenWk !== null ? Math.round(t.regenWk) + '%' : ''}</div>
+      </div>`).join('');
 
-    inhalt.innerHTML = `
-      ${aktuellHtml}
-      <div class="grid grid-cols-2 gap-3">
+    detEl.innerHTML = `
+      <div class="dash-day-strip">${tagStreifen}</div>
+      <div class="grid grid-cols-2 gap-3 mt-3 text-sm">
         <div><span class="text-gray-400 text-xs">Niederschlag letzte 7 Tage</span><br><b>${niederschlag7.toFixed(1)} mm</b></div>
         <div><span class="text-gray-400 text-xs">Verdunstung letzte 7 Tage</span><br><b>${verdunstung7.toFixed(1)} mm</b></div>
       </div>
       ${maehfenster
-        ? `<div class="mt-2 text-green-700">🌤️ Gutes Mähfenster: ${fmtDate(maehfenster.von)} – ${fmtDate(maehfenster.bis)} (trocken)</div>`
-        : `<div class="mt-2 text-gray-500">Kein trockenes Mähfenster in den nächsten Tagen erkennbar.</div>`}
-      ${tagesTabelle}
-      <div class="text-xs text-gray-400 mt-1">7-Tage-Vorhersage gemittelt aus mehreren Wettermodellen (ICON, ECMWF, GFS).</div>
+        ? `<div class="mt-2 text-green-700 text-sm">🌤️ Gutes Mähfenster: ${fmtDate(maehfenster.von)} – ${fmtDate(maehfenster.bis)} (trocken)</div>`
+        : `<div class="mt-2 text-gray-500 text-sm">Kein trockenes Mähfenster in den nächsten Tagen erkennbar.</div>`}
+      <div class="text-xs text-gray-400 mt-2">7-Tage-Vorhersage gemittelt aus mehreren Wettermodellen (ICON, ECMWF, GFS).</div>
     `;
-    box.classList.remove('hidden');
   } catch (e) {
-    box.classList.add('hidden');
+    valEl.textContent = 'nicht verfügbar';
+    if (detEl) detEl.innerHTML = '<p class="text-gray-400 text-sm py-2">Wetterdaten konnten nicht geladen werden.</p>';
   }
 }
 
@@ -706,6 +759,13 @@ function initMapIfNeeded() {
         state.map.closePopup();
         if (btn.dataset.popupAction === 'schnitt') openSchnittModal(flaeche);
         else if (btn.dataset.popupAction === 'duengung') openDuengungModal(flaeche);
+        else if (btn.dataset.popupAction === 'arbeitsschritt') openArbeitsschrittModal(flaeche);
+        else if (btn.dataset.popupAction === 'rebanlage-detail') openRebanlageDetail({ ID: flaeche.ID, Name: flaeche.Name });
+        else if (btn.dataset.popupAction === 'ernte-acker') {
+          const jahr = new Date().getFullYear();
+          const bestehend = (state.fruchtfolge || []).find(ff => ff.FlaecheID === flaeche.ID && Number(ff.Jahr) === jahr);
+          openFruchtfolgeModal(flaeche, bestehend || {});
+        }
       };
     });
   });
@@ -1011,13 +1071,22 @@ function flaechePopupHtml(f) {
       html += '<br>' + schnitteJahr.map(s => `${s.SchnittNummer}. Schnitt: ${new Date(s.Datum).toLocaleDateString('de-DE')}${s.ErtragsMenge ? ` (${s.ErtragsMenge} ${s.ErtragsEinheit || ''})` : ''}`).join('<br>');
     }
   }
-  // Schnellerfassung: bei Dauer- und Wechselwiese direkt aus dem Popup Schnitt/Düngung erfassen
+  // Schnellerfassung direkt aus dem Popup - je Nutzungsart die jeweils passenden Aktionen
+  const aktionen = [];
   if (f.Nutzungsart === 'Dauerwiese' || f.Nutzungsart === 'Wechselwiese') {
-    html += `<div class="mt-2 pt-2 border-t flex gap-2 flex-wrap">
-      <button data-popup-action="schnitt" data-flaeche-id="${f.ID}" class="text-xs bg-green-600 text-white px-2 py-1 rounded">✂️ Schnitt erfassen</button>
-      <button data-popup-action="duengung" data-flaeche-id="${f.ID}" class="text-xs bg-amber-600 text-white px-2 py-1 rounded">💩 Düngung erfassen</button>
-    </div>`;
+    aktionen.push(`<button data-popup-action="schnitt" data-flaeche-id="${f.ID}" class="text-xs bg-green-600 text-white px-2 py-1 rounded">✂️ Schnitt erfassen</button>`);
+    aktionen.push(`<button data-popup-action="duengung" data-flaeche-id="${f.ID}" class="text-xs bg-amber-600 text-white px-2 py-1 rounded">💩 Düngung erfassen</button>`);
   }
+  if (f.Nutzungsart === 'Ackerland') {
+    aktionen.push(`<button data-popup-action="ernte-acker" data-flaeche-id="${f.ID}" class="text-xs bg-orange-600 text-white px-2 py-1 rounded">🌾 Bearbeitung/Ernte erfassen</button>`);
+  }
+  if (DAUERKULTUR_NUTZUNGSARTEN.includes(f.Nutzungsart)) {
+    aktionen.push(`<button data-popup-action="rebanlage-detail" data-flaeche-id="${f.ID}" class="text-xs bg-purple-600 text-white px-2 py-1 rounded">🍇 Pflege/Reife/Ernte</button>`);
+  }
+  if (hatArbeitsablauf(f)) {
+    aktionen.push(`<button data-popup-action="arbeitsschritt" data-flaeche-id="${f.ID}" class="text-xs bg-teal-600 text-white px-2 py-1 rounded">✅ Schritt erledigt</button>`);
+  }
+  if (aktionen.length) html += `<div class="mt-2 pt-2 border-t flex gap-2 flex-wrap">${aktionen.join('')}</div>`;
   return html;
 }
 
@@ -1599,19 +1668,6 @@ function openArbeitsschrittModal(flaeche) {
       }
     });
   });
-}
-
-async function loadArbeitenBox() {
-  const box = document.getElementById('dashboardArbeitenBox');
-  const inhalt = document.getElementById('dashboardArbeitenInhalt');
-  const [flaechen, feldarbeiten] = await Promise.all([cachedList('flaechen.list'), cachedList('feldarbeiten.list')]);
-  const anstehend = flaechen
-    .filter(f => f.Aktiv !== false && hatArbeitsablauf(f))
-    .map(f => ({ f, naechster: naechsterArbeitsschritt(f, feldarbeiten) }))
-    .filter(x => x.naechster);
-  if (!anstehend.length) { box.classList.add('hidden'); return; }
-  box.classList.remove('hidden');
-  inhalt.innerHTML = anstehend.map(x => `<div class="flex justify-between"><span>${x.f.Name}</span><b>${x.naechster}</b></div>`).join('');
 }
 
 // ============================================================================
