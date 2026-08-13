@@ -380,8 +380,23 @@ async function showSection(name) {
 // ============================================================================
 // AUTH / BOOTSTRAP
 // ============================================================================
+// Das Google-Skript (accounts.google.com/gsi/client) lädt asynchron und ist auf
+// langsameren Verbindungen (v.a. mobil) oft noch nicht fertig, wenn DOMContentLoaded
+// feuert - ein direkter Aufruf würde dann mit "google is not defined" abstürzen,
+// ohne dass der Nutzer eine Fehlermeldung sieht. Deshalb hier aktiv abwarten.
+function waitForGoogleIdentity(callback, attempts = 0) {
+  if (window.google && window.google.accounts && window.google.accounts.id) {
+    callback();
+  } else if (attempts < 100) {
+    setTimeout(() => waitForGoogleIdentity(callback, attempts + 1), 100);
+  } else {
+    const err = document.getElementById('loginError');
+    if (err) err.textContent = 'Google-Anmeldedienst konnte nicht geladen werden. Bitte Internetverbindung prüfen und neu laden.';
+  }
+}
+
 window.addEventListener('DOMContentLoaded', () => {
-  Auth.init(onSignedIn, onSignedOut);
+  waitForGoogleIdentity(() => Auth.init(onSignedIn, onSignedOut));
 
   document.getElementById('signOutBtn').onclick = () => Auth.signOut();
   document.getElementById('btnAktualisieren').onclick = async (ev) => {
