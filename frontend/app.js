@@ -452,6 +452,9 @@ async function refreshActiveUsersLabel() {
 // ============================================================================
 // DASHBOARD
 // ============================================================================
+const TODO_PRIORITAET_ORDER = { Hoch: 0, Mittel: 1, Niedrig: 2 };
+const TODO_PRIORITAET_ICONS = { Hoch: '🔴', Mittel: '🟡', Niedrig: '🟢' };
+
 // Eine Dashboard-Kachel als HTML-String: feste/quadratische Größe, Kopf (Icon/Titel/
 // Wert) + darunter eine scrollende Kurz-Vorschau (wächst nie über die Kachel hinaus -
 // bei mehr Zeilen wird innerhalb der Kachel gescrollt). Der Pfeil oben rechts (nur wenn
@@ -482,43 +485,135 @@ document.getElementById('dashboardGrid').addEventListener('click', (e) => {
 
 // Vollständige, klickbare Detail-Ansicht je Kachel - nutzt dieselben Formulare/Aktionen
 // wie die jeweilige Sektion, damit man von hier aus direkt handeln kann statt nur zu lesen.
+const DASH_TILE_SECTIONS = {
+  tiere: { section: 'vieh', label: 'Viehhaltung' },
+  flaechen: { section: 'flaechen', label: 'Flächen' },
+  arbeiten: { section: 'flaechen', label: 'Flächen' },
+  wartung: { section: 'fuhrpark', label: 'Fuhrpark' },
+  futter: { section: 'futtermittel', label: 'Futtermittel' },
+  keller: { section: 'weinbau', label: 'Weinbau & Keller' }
+};
+
+// Öffnet das Detail-Fenster einer Dashboard-Kachel mit einem fest sichtbaren Link zum
+// zugehörigen Reiter oben im Fenster - auf dem Handy ist das die einzige Möglichkeit,
+// von der (im Fenster gefangenen) Detailansicht aus direkt in den vollen Bereich zu
+// wechseln, ohne das Fenster erst manuell schließen zu müssen.
+function openDashDetailWithSection(title, tileId, renderFn) {
+  const ziel = DASH_TILE_SECTIONS[tileId];
+  openDetailModal(title, (body) => {
+    body.innerHTML = ziel
+      ? `<button id="btnDashGoto" class="text-sm text-green-700 hover:underline mb-3">→ ${ziel.label} öffnen</button><div id="dashDetailInner"></div>`
+      : '<div id="dashDetailInner"></div>';
+    if (ziel) document.getElementById('btnDashGoto').onclick = () => { detailModal.close(); showSection(ziel.section); };
+    renderFn(document.getElementById('dashDetailInner'));
+  });
+}
+
+function todoRowHtml(t) {
+  return `<div class="flex items-center gap-2 py-1.5 border-b last:border-b-0${t.Erledigt ? ' opacity-50' : ''}">
+    <input type="checkbox" class="todo-check w-4 h-4 shrink-0" data-id="${t.ID}" ${t.Erledigt ? 'checked' : ''}>
+    <span class="flex-1 text-sm ${t.Erledigt ? 'line-through text-gray-400' : ''}">${t.Text}</span>
+    ${!t.Erledigt ? `<button data-id="${t.ID}" class="todo-prio-up text-gray-400 hover:text-gray-700 px-1" title="Priorität erhöhen">▲</button>
+    <button data-id="${t.ID}" class="todo-prio-down text-gray-400 hover:text-gray-700 px-1" title="Priorität senken">▼</button>` : ''}
+    <span title="${t.Prioritaet || 'Mittel'}">${TODO_PRIORITAET_ICONS[t.Prioritaet] || '🟡'}</span>
+    <button data-id="${t.ID}" class="todo-delete text-red-400 hover:text-red-600 px-1">✕</button>
+  </div>`;
+}
+
+function renderTodoListe(container) {
+  const alle = state.dashboardData.todos || [];
+  const offen = alle.filter(t => !t.Erledigt).sort((a, b) => (TODO_PRIORITAET_ORDER[a.Prioritaet] ?? 1) - (TODO_PRIORITAET_ORDER[b.Prioritaet] ?? 1));
+  const erledigt = alle.filter(t => t.Erledigt);
+
+  container.innerHTML = `
+    <div class="flex gap-2 mb-3">
+      <input id="todoNeuText" type="text" placeholder="Neue Aufgabe eintippen …" class="flex-1 border rounded px-3 py-2 text-sm">
+      <button id="todoNeuAdd" class="bg-green-700 text-white px-3 py-2 rounded text-sm shrink-0">+ Hinzufügen</button>
+    </div>
+    <div>${offen.map(todoRowHtml).join('') || '<p class="text-gray-400 text-sm py-2">Keine offenen Aufgaben.</p>'}</div>
+    ${erledigt.length ? `<div class="mt-4 pt-3 border-t">
+      <div class="text-xs text-gray-400 mb-1">Erledigt (${erledigt.length})</div>
+      <div>${erledigt.map(todoRowHtml).join('')}</div>
+    </div>` : ''}`;
+
+  const neuHinzufuegen = async () => {
+    const feld = document.getElementById('todoNeuText');
+    const text = feld.value.trim();
+    if (!text) return;
+    const saved = await safeCall('todos.create', { Text: text, Prioritaet: 'Mittel', Erledigt: false }, 'Aufgabe hinzugefügt.');
+    cacheUpsert('todos.list', saved);
+    renderTodoListe(container);
+  };
+  container.querySelector('#todoNeuAdd').onclick = neuHinzufuegen;
+  container.querySelector('#todoNeuText').addEventListener('keydown', (e) => { if (e.key === 'Enter') neuHinzufuegen(); });
+
+  container.querySelectorAll('.todo-check').forEach(cb => cb.onchange = async () => {
+    const saved = await safeCall('todos.update', { id: cb.dataset.id, Erledigt: cb.checked });
+    cacheUpsert('todos.list', saved);
+    renderTodoListe(container);
+  });
+  container.querySelectorAll('.todo-prio-up').forEach(b => b.onclick = () => aendereTodoPrioritaet(b.dataset.id, -1, container));
+  container.querySelectorAll('.todo-prio-down').forEach(b => b.onclick = () => aendereTodoPrioritaet(b.dataset.id, 1, container));
+  container.querySelectorAll('.todo-delete').forEach(b => b.onclick = async () => {
+    await safeCall('todos.delete', { id: b.dataset.id }, 'Gelöscht.');
+    cacheRemove('todos.list', b.dataset.id);
+    state.dashboardData.todos = listCache['todos.list'];
+    renderTodoListe(container);
+  });
+}
+
+// Verschiebt eine Aufgabe eine Prioritätsstufe nach oben (-1) oder unten (+1).
+async function aendereTodoPrioritaet(id, delta, container) {
+  const t = (state.dashboardData.todos || []).find(x => x.ID === id);
+  if (!t) return;
+  const stufen = ['Hoch', 'Mittel', 'Niedrig'];
+  let idx = stufen.indexOf(t.Prioritaet);
+  if (idx < 0) idx = 1;
+  idx = Math.min(stufen.length - 1, Math.max(0, idx + delta));
+  const saved = await safeCall('todos.update', { id, Prioritaet: stufen[idx] });
+  cacheUpsert('todos.list', saved);
+  renderTodoListe(container);
+}
+
 function openDashTileDetail(id) {
   const d = state.dashboardData || {};
-  if (id === 'tiere') {
-    openDetailModal('Tiere', (body) => {
-      renderTable(body,
+  if (id === 'todos') {
+    openDashDetailWithSection('To-Do', id, (inner) => renderTodoListe(inner));
+  } else if (id === 'tiere') {
+    openDashDetailWithSection('Tiere', id, (inner) => {
+      renderTable(inner,
         [{ key: 'Ohrmarke', label: 'Ohrmarke' }, { key: 'Tierart', label: 'Tierart' }, { key: 'Name', label: 'Name' }, { key: 'Rasse', label: 'Rasse' }],
         d.tiereLebend,
         { extraButtons: (row) => `<button data-id="${row.ID}" class="btn-dash-tier-details text-green-700 hover:underline mr-2">📋 Details &amp; Zucht</button>`
             + `<button data-id="${row.ID}" class="btn-dash-tier-edit text-blue-600 hover:underline">Bearbeiten</button>` });
-      body.querySelectorAll('.btn-dash-tier-details').forEach(b => b.onclick = () => { detailModal.close(); openTierBuchungenDetail(d.tiereLebend.find(t => t.ID === b.dataset.id)); });
-      body.querySelectorAll('.btn-dash-tier-edit').forEach(b => b.onclick = () => { detailModal.close(); openTierModal(d.tiereLebend.find(t => t.ID === b.dataset.id)); });
+      inner.querySelectorAll('.btn-dash-tier-details').forEach(b => b.onclick = () => { detailModal.close(); openTierBuchungenDetail(d.tiereLebend.find(t => t.ID === b.dataset.id)); });
+      inner.querySelectorAll('.btn-dash-tier-edit').forEach(b => b.onclick = () => { detailModal.close(); openTierModal(d.tiereLebend.find(t => t.ID === b.dataset.id)); });
     });
   } else if (id === 'flaechen') {
-    openDetailModal('Flächen', (body) => {
-      renderTable(body,
+    openDashDetailWithSection('Flächen', id, (inner) => {
+      renderTable(inner,
         [{ key: 'Name', label: 'Name' }, { key: 'Nutzungsart', label: 'Nutzung' }, { label: 'Fläche', format: r => `${Number(r.FlaecheHa || 0).toFixed(2)} ha` }],
         d.flaechenAktiv,
         { onRowClick: async (row) => { detailModal.close(); await showSection('flaechen'); zoomZuFlaeche(state.flaechen.find(f => f.ID === row.ID) || row); } });
     });
   } else if (id === 'arbeiten') {
-    openDetailModal('Anstehende Bearbeitungen', (body) => {
-      renderTable(body, [{ key: 'Name', label: 'Fläche' }, { label: 'Nächster Schritt', format: r => r._naechster }], d.anstehend,
+    openDashDetailWithSection('Anstehende Bearbeitungen', id, (inner) => {
+      renderTable(inner, [{ key: 'Name', label: 'Fläche' }, { label: 'Nächster Schritt', format: r => r._naechster }], d.anstehend,
         { onRowClick: (row) => { detailModal.close(); openArbeitsschrittModal(row); } });
     });
   } else if (id === 'wartung') {
-    openDetailModal('Wartung', (body) => {
-      renderTable(body, [{ label: 'Maschine', format: r => r.m.Bezeichnung }, { label: 'Hinweis', format: r => r.hinweise.join(' · ') }], d.alarme,
+    openDashDetailWithSection('Wartung', id, (inner) => {
+      renderTable(inner, [{ label: 'Maschine', format: r => r.m.Bezeichnung }, { label: 'Hinweis', format: r => r.hinweise.join(' · ') }], d.alarme,
         { onRowClick: (row) => { detailModal.close(); openWartungsintervalleDetail(row.m); } });
     });
   } else if (id === 'futter') {
-    openDetailModal('Futtermittel', (body) => {
-      renderTable(body, [{ key: 'Bezeichnung', label: 'Bezeichnung' }, { label: 'Bestand', format: r => `${Number(r.BestandAktuell || 0).toFixed(1)} ${r.Einheit}` }], d.futtermittelAktiv,
+    openDashDetailWithSection('Futtermittel', id, (inner) => {
+      renderTable(inner, [{ key: 'Bezeichnung', label: 'Bezeichnung' }, { label: 'Bestand', format: r => `${Number(r.BestandAktuell || 0).toFixed(1)} ${r.Einheit}` }], d.futtermittelAktiv,
         { onRowClick: (row) => { detailModal.close(); openFuttermittelBewegungModal(row); } });
     });
   } else if (id === 'keller') {
-    openDetailModal('Keller', (body) => {
-      body.innerHTML = '<div class="font-semibold mb-2">Fässer</div><div id="dashKellerFass"></div><div class="font-semibold mt-4 mb-2">Flaschenlager</div><div id="dashKellerFlaschen"></div>';
+    openDashDetailWithSection('Keller', id, (inner) => {
+      inner.innerHTML = '<div class="font-semibold mb-2">Fässer</div><div id="dashKellerFass"></div><div class="font-semibold mt-4 mb-2">Flaschenlager</div><div id="dashKellerFlaschen"></div>';
       renderTable(document.getElementById('dashKellerFass'),
         [{ key: 'Bezeichnung', label: 'Tank' }, { label: 'Inhalt', format: r => `${Number(r.AktuellerInhaltLiter || 0).toFixed(0)} l` }], d.fassMitInhalt,
         { onRowClick: (row) => { detailModal.close(); openKellerLogbuchDetail(row); } });
@@ -530,7 +625,7 @@ function openDashTileDetail(id) {
 }
 
 async function loadDashboard() {
-  const { s, maschinen, intervalle, futtermittel, tanks, flaschenbestand, flaechen, fruchtfolge, feldarbeiten, tiere } = await cachedBatch({
+  const { s, maschinen, intervalle, futtermittel, tanks, flaschenbestand, flaechen, fruchtfolge, feldarbeiten, tiere, todos } = await cachedBatch({
     s: { action: 'dashboard.summary' },
     maschinen: { action: 'maschinen.list' },
     intervalle: { action: 'wartungsintervalle.list' },
@@ -540,7 +635,8 @@ async function loadDashboard() {
     flaechen: { action: 'flaechen.list' },
     fruchtfolge: { action: 'fruchtfolge.list' },
     feldarbeiten: { action: 'feldarbeiten.list' },
-    tiere: { action: 'tiere.list' }
+    tiere: { action: 'tiere.list' },
+    todos: { action: 'todos.list' }
   });
   state.maschinen = maschinen.filter(m => m.Aktiv !== false);
   state.wartungsintervalle = intervalle;
@@ -558,9 +654,17 @@ async function loadDashboard() {
 
   // Für die Detail-Fenster (Pfeil-Klick) - dort wird mit den vollen, klickbaren Listen
   // gearbeitet statt nur mit der kompakten Kachel-Vorschau.
-  state.dashboardData = { tiereLebend, flaechenAktiv, anstehend, alarme, futtermittelAktiv, fassMitInhalt, flaschenbestandAktiv };
+  state.dashboardData = { tiereLebend, flaechenAktiv, anstehend, alarme, futtermittelAktiv, fassMitInhalt, flaschenbestandAktiv, todos };
 
   const tiles = [];
+
+  const todosOffen = todos.filter(t => !t.Erledigt).sort((a, b) => (TODO_PRIORITAET_ORDER[a.Prioritaet] ?? 1) - (TODO_PRIORITAET_ORDER[b.Prioritaet] ?? 1));
+  tiles.push(dashTileHtml({
+    id: 'todos', icon: '✅', title: 'To-Do', value: todosOffen.length, sub: `${todos.length - todosOffen.length} erledigt`, expandable: true,
+    preview: todosOffen.length
+      ? todosOffen.slice(0, 8).map(t => drow(`${TODO_PRIORITAET_ICONS[t.Prioritaet] || '🟡'} ${t.Text}`, '')).join('')
+      : '<p class="text-gray-400 text-xs py-2">Keine offenen Aufgaben.</p>'
+  }));
 
   tiles.push(dashTileHtml({
     id: 'tiere', icon: '🐄', title: 'Tiere', value: tiereLebend.length, sub: 'lebend', section: 'vieh', expandable: true,

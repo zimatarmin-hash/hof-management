@@ -187,6 +187,12 @@
     "hinweise": { "Typ": "Zugang (Ernte) | Zugang (Manuell) | Verfüttert | Verkauft | Verlust", "HerkunftFlaecheID": "Nur bei 'Zugang (Ernte)' gesetzt - Referenz auf die erntende Fläche" }
   },
 
+  "Todos": {
+    "beschreibung": "Einfache To-Do-Liste, oben im Dashboard sichtbar. Gemeinsam für alle Nutzer sichtbar (kein Einzelnutzer-Filter).",
+    "spalten": ["ID", "Text", "Prioritaet", "Erledigt", "ErstelltVon", "ErstelltAm"],
+    "hinweise": { "Prioritaet": "Hoch | Mittel | Niedrig", "Erledigt": "TRUE | FALSE" }
+  },
+
   "AktivitaetsLog": {
     "beschreibung": "Einfaches Audit-Log, u.a. für 'wer ist aktuell aktiv' auf dem Dashboard.",
     "spalten": ["Timestamp", "UserEmail", "UserName", "Aktion", "Details"]

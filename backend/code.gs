@@ -57,6 +57,7 @@ var SHEET_SCHEMA = {
   TierbestandBewegungen: ['ID', 'TierbestandID', 'Datum', 'Typ', 'Anzahl', 'Notiz', 'ErfasstVon'],
   Futtermittel: ['ID', 'Bezeichnung', 'Kategorie', 'Einheit', 'BestandAktuell', 'MindestBestand', 'Notiz', 'ErstelltVon', 'ErstelltAm', 'Aktiv'],
   FuttermittelBewegungen: ['ID', 'FuttermittelID', 'Datum', 'Typ', 'Menge', 'HerkunftFlaecheID', 'Notiz', 'ErfasstVon'],
+  Todos: ['ID', 'Text', 'Prioritaet', 'Erledigt', 'ErstelltVon', 'ErstelltAm'],
   AktivitaetsLog: ['Timestamp', 'UserEmail', 'UserName', 'Aktion', 'Details']
 };
 
@@ -91,7 +92,8 @@ var ENTITY_SHEET_MAP = {
   tierbestandbewegungen: 'TierbestandBewegungen',
   futtermittel: 'Futtermittel',
   futtermittelbewegungen: 'FuttermittelBewegungen',
-  users: 'Users'
+  users: 'Users',
+  todos: 'Todos'
 };
 
 // Primärschlüssel-Spalte je Entität (Standard: "ID"; einige Stammdaten-Tabellen
