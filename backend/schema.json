@@ -14,8 +14,8 @@
   },
 
   "Flaechen": {
-    "beschreibung": "Parzellen/Flächen des Betriebs inkl. Geometrie als GeoJSON-String.",
-    "spalten": ["ID", "Name", "KatastralGemeinde", "Parzellennummer", "FlaecheHa", "Besitzart", "Nutzungsart", "GeoJSON", "Notiz", "ErstelltVon", "ErstelltAm", "Aktiv"],
+    "beschreibung": "Parzellen/Flächen des Betriebs inkl. Geometrie als GeoJSON-String. Rebsorte/AnzahlPflanzen sind nur bei Nutzungsart Weinbau/Obstbau relevant - solche Flächen erscheinen automatisch auch im Weinbau-Reiter als Rebanlage (Pflege/Reife/Ernte wird dann direkt unter der Flaeche.ID erfasst, ohne Umweg über eine separate SubFlaeche).",
+    "spalten": ["ID", "Name", "KatastralGemeinde", "Parzellennummer", "FlaecheHa", "Besitzart", "Nutzungsart", "Rebsorte", "AnzahlPflanzen", "GeoJSON", "Notiz", "ErstelltVon", "ErstelltAm", "Aktiv"],
     "hinweise": {
       "Besitzart": "Besitz | Pacht",
       "Nutzungsart": "Wald | Dauerwiese | Wechselwiese | Weinbau | Obstbau | Ackerland (alter Wert 'Obst-Weinbau' bleibt aus Altdaten gültig)",

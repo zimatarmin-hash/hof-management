@@ -28,7 +28,7 @@ var DRIVE_ROOT_FOLDER_NAME = 'Hof-Management Belege';
 var SHEET_SCHEMA = {
   Users: ['Email', 'Name', 'Rolle', 'Status', 'AngelegtAm'],
   Betrieb: ['HofName', 'Adresse', 'Betriebsnummer', 'Ansprechpartner', 'ErinnerungWochenVorher', 'AktualisiertAm'],
-  Flaechen: ['ID', 'Name', 'KatastralGemeinde', 'Parzellennummer', 'FlaecheHa', 'Besitzart', 'Nutzungsart', 'GeoJSON', 'Notiz', 'ErstelltVon', 'ErstelltAm', 'Aktiv'],
+  Flaechen: ['ID', 'Name', 'KatastralGemeinde', 'Parzellennummer', 'FlaecheHa', 'Besitzart', 'Nutzungsart', 'Rebsorte', 'AnzahlPflanzen', 'GeoJSON', 'Notiz', 'ErstelltVon', 'ErstelltAm', 'Aktiv'],
   SubFlaechen: ['ID', 'FlaecheID', 'Name', 'Rebsorte', 'FlaecheM2', 'Pflanzjahr', 'GeoJSON', 'Notiz', 'ErstelltVon', 'ErstelltAm', 'Aktiv'],
   Kulturen: ['Kultur', 'Kategorie', 'SaatmengeKgHa', 'DuengeempfehlungN_KgHa', 'DuengeempfehlungP_KgHa', 'DuengeempfehlungK_KgHa', 'UnvertraeglicheVorfruechte', 'AnbaupauseJahre', 'KartenFarbe', 'KartenSymbol'],
   Fruchtfolge: ['ID', 'FlaecheID', 'Jahr', 'Kultur', 'Aussaatdatum', 'Erntedatum', 'ErtragsMenge', 'ErtragsEinheit', 'SaatmengeKgHaBerechnet', 'SaatmengeGesamtKg', 'Notiz', 'ErstelltVon', 'ErstelltAm'],

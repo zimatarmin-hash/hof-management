@@ -1208,6 +1208,8 @@ function openFlaecheModal(initial = {}) {
       { key: 'FlaecheHa', label: 'Fläche (ha)', type: 'number', step: '0.01', required: true },
       { key: 'Besitzart', label: 'Besitzart', type: 'select', options: ['Besitz', 'Pacht'] },
       { key: 'Nutzungsart', label: 'Nutzungsart', type: 'select', options: NUTZUNGSARTEN },
+      { key: 'Rebsorte', label: 'Rebsorte/Sorte (nur bei Weinbau/Obstbau relevant)' },
+      { key: 'AnzahlPflanzen', label: 'Anzahl Pflanzen (nur bei Weinbau/Obstbau relevant)', type: 'number' },
       { key: 'Notiz', label: 'Notiz', type: 'textarea' }
     ],
     initial,
@@ -1927,13 +1929,14 @@ async function loadViehSection() {
       { label: 'Geburtsdatum', format: r => fmtDate(r.Geburtsdatum) },
       { key: 'Geschlecht', label: 'Geschlecht' },
       { key: 'Status', label: 'Status' },
+      { label: 'Zuchtkalender', format: r => zuchtstatusFuerTier(r.ID) },
       { label: 'Deckungsbeitrag', format: r => euro(deckungsbeitragFuerTier(r.ID)) }
     ],
     state.tiere,
     {
       onEdit: (row) => openTierModal(row),
       onDelete: async (row) => { await safeCall('tiere.delete', { id: row.ID }, 'Gelöscht.'); cacheRemove('tiere.list', row.ID); await loadViehSection(); },
-      extraButtons: (row) => `<button data-id="${row.ID}" class="btn-tier-buchungen text-green-700 hover:underline mr-2">Kosten/Erlöse</button>`
+      extraButtons: (row) => `<button data-id="${row.ID}" class="btn-tier-buchungen text-green-700 hover:underline mr-2">📋 Details &amp; Zucht</button>`
     });
   document.querySelectorAll('.btn-tier-buchungen').forEach(b => b.onclick = () => openTierBuchungenDetail(state.tiere.find(t => t.ID === b.dataset.id)));
 
@@ -2041,8 +2044,28 @@ function openTierModal(initial = {}) {
   });
 }
 
+// Zeigt in der Tier-Übersicht direkt das nächste anstehende Zuchtereignis (statt erst im Detail-Modal).
+function zuchtstatusFuerTier(tierId) {
+  const events = (state.zuchtereignisse || []).filter(z => z.TierID === tierId);
+  if (!events.length) return '-';
+  const heute = new Date();
+  const kommende = events
+    .flatMap(z => {
+      const out = [];
+      const abkalb = new Date(z.VoraussichtlichesAbkalbedatum);
+      const trocken = new Date(z.TrockenstellenAb);
+      if (!isNaN(abkalb) && abkalb >= heute) out.push({ label: `📅 Abkalbung ${fmtDate(abkalb)}`, datum: abkalb });
+      if (!isNaN(trocken) && trocken >= heute) out.push({ label: `📅 Trockenstellen ${fmtDate(trocken)}`, datum: trocken });
+      return out;
+    })
+    .sort((a, b) => a.datum - b.datum);
+  if (kommende.length) return kommende[0].label;
+  const letztes = events.slice().sort((a, b) => new Date(b.Datum) - new Date(a.Datum))[0];
+  return `${letztes.Typ} ${fmtDate(letztes.Datum)}`;
+}
+
 function openTierBuchungenDetail(tier) {
-  openDetailModal(`Kosten &amp; Erlöse: ${tier.Name || tier.Ohrmarke}`, async (body) => {
+  openDetailModal(`Details &amp; Zucht: ${tier.Name || tier.Ohrmarke}`, async (body) => {
     body.innerHTML = `
       <div class="flex gap-2">
         <button id="btnNeueTierKosten" class="bg-red-100 text-red-700 px-3 py-2 rounded text-sm">+ Kosten</button>
@@ -2356,6 +2379,38 @@ function wireMostgewichtKonvertierung() {
   [feldOe, feldBrix, feldKmw].forEach(f => f.addEventListener('input', () => aktualisiere(f)));
 }
 
+// Bewässerungsempfehlung je Rebanlage anhand der letzten 5 Tage (Open-Meteo, ein
+// gebündelter Request für alle Rebanlagen gleichzeitig statt eines Requests pro Zeile).
+async function berechneBewaesserungsempfehlung(rows) {
+  const ergebnis = {};
+  const mitGeometrie = rows.map(r => {
+    if (!r.GeoJSON) return null;
+    try { return { id: r.ID, centroid: computeCentroid(JSON.parse(r.GeoJSON)) }; } catch (e) { return null; }
+  }).filter(Boolean);
+  if (!mitGeometrie.length) return ergebnis;
+  try {
+    const lats = mitGeometrie.map(m => m.centroid.lat.toFixed(4)).join(',');
+    const lngs = mitGeometrie.map(m => m.centroid.lng.toFixed(4)).join(',');
+    const url = `https://api.open-meteo.com/v1/forecast?latitude=${lats}&longitude=${lngs}&daily=precipitation_sum,et0_fao_evapotranspiration&past_days=5&forecast_days=1&timezone=auto`;
+    const res = await fetch(url);
+    if (!res.ok) throw new Error('Wetterdienst nicht erreichbar');
+    const data = await res.json();
+    // Bei genau einer Koordinate liefert Open-Meteo ein einzelnes Objekt statt eines Arrays
+    const liste = Array.isArray(data) ? data : [data];
+    mitGeometrie.forEach((m, i) => {
+      const d = liste[i];
+      if (!d || !d.daily) return;
+      const niederschlag5 = d.daily.precipitation_sum.slice(0, 5).reduce((sum, v) => sum + (v || 0), 0);
+      const verdunstung5 = d.daily.et0_fao_evapotranspiration.slice(0, 5).reduce((sum, v) => sum + (v || 0), 0);
+      const bewaessern = niederschlag5 < 5 && verdunstung5 > niederschlag5 + 10;
+      ergebnis[m.id] = bewaessern
+        ? `💧 Bewässern empfohlen (${niederschlag5.toFixed(0)}mm Regen / ${verdunstung5.toFixed(0)}mm Verdunstung, 5 Tage)`
+        : `✅ Kein Bedarf (${niederschlag5.toFixed(0)}mm Regen, 5 Tage)`;
+    });
+  } catch (e) { /* Wetterdienst nicht erreichbar - Spalte bleibt leer, kein Blocker für die restliche Anzeige */ }
+  return ergebnis;
+}
+
 async function loadWeinbauSection() {
   const { subflaechen, flaechen } = await cachedBatch({
     subflaechen: { action: 'subflaechen.list' },
@@ -2364,20 +2419,40 @@ async function loadWeinbauSection() {
   state.subflaechen = subflaechen.filter(s => s.Aktiv !== false);
   state.flaechen = flaechen;
 
+  // Manche Betriebe zeichnen einen Weingarten direkt als eigene Fläche (Nutzungsart
+  // Weinbau/Obstbau) statt als SubFläche über den "Rebanlagen"-Button - solche Flächen
+  // sollen hier trotzdem als Rebanlage auftauchen (nur wenn nicht bereits in SubFlächen
+  // unterteilt, sonst gäbe es die Parzelle doppelt: einmal ganz, einmal in Teilen).
+  const flaechenOhneSubflaeche = flaechen.filter(f =>
+    f.Aktiv !== false && DAUERKULTUR_NUTZUNGSARTEN.includes(f.Nutzungsart) &&
+    !state.subflaechen.some(s => s.FlaecheID === f.ID));
+  const rebanlagenAnzeige = [
+    ...state.subflaechen.map(s => ({ ...s, _istEigeneFlaeche: false })),
+    ...flaechenOhneSubflaeche.map(f => ({
+      ID: f.ID, Name: f.Name, FlaecheID: null, Rebsorte: f.Rebsorte,
+      FlaecheM2: Number(f.FlaecheHa || 0) * 10000, AnzahlPflanzen: f.AnzahlPflanzen,
+      Pflanzjahr: null, GeoJSON: f.GeoJSON, _istEigeneFlaeche: true
+    }))
+  ];
+  state.rebanlagenAnzeige = rebanlagenAnzeige;
+
+  const bewaesserung = await berechneBewaesserungsempfehlung(rebanlagenAnzeige);
+
   renderTable(document.getElementById('rebanlagenTable'),
     [
       { key: 'Name', label: 'Rebanlage' },
-      { label: 'Parzelle', format: r => (state.flaechen.find(f => f.ID === r.FlaecheID) || {}).Name || '-' },
+      { label: 'Parzelle', format: r => r._istEigeneFlaeche ? '(eigene Parzelle)' : ((state.flaechen.find(f => f.ID === r.FlaecheID) || {}).Name || '-') },
       { key: 'Rebsorte', label: 'Rebsorte' },
       { label: 'Fläche', format: r => `${Number(r.FlaecheM2 || 0).toFixed(0)} m²` },
-      { key: 'Pflanzjahr', label: 'Pflanzjahr' },
-      { label: 'Standjahr', format: r => computeStandjahr(r.Pflanzjahr).label }
+      { label: 'Pflanzen', format: r => r.AnzahlPflanzen || '-' },
+      { label: 'Standjahr', format: r => computeStandjahr(r.Pflanzjahr).label },
+      { label: '💧 Bewässerung', format: r => bewaesserung[r.ID] || '-' }
     ],
-    state.subflaechen,
+    rebanlagenAnzeige,
     { extraButtons: (row) => `<button data-id="${row.ID}" class="btn-rebanlage-detail text-green-700 hover:underline mr-2">Pflege/Reife/Ernte</button>` });
 
   document.querySelectorAll('.btn-rebanlage-detail').forEach(b => {
-    b.onclick = () => openRebanlageDetail(state.subflaechen.find(s => s.ID === b.dataset.id));
+    b.onclick = () => openRebanlageDetail(rebanlagenAnzeige.find(s => s.ID === b.dataset.id));
   });
 
   await loadKellerTab();
