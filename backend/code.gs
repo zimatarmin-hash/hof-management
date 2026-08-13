@@ -27,19 +27,21 @@ var DRIVE_ROOT_FOLDER_NAME = 'Hof-Management Belege';
 
 var SHEET_SCHEMA = {
   Users: ['Email', 'Name', 'Rolle', 'Status', 'AngelegtAm'],
-  Betrieb: ['HofName', 'Adresse', 'Betriebsnummer', 'Ansprechpartner', 'AktualisiertAm'],
+  Betrieb: ['HofName', 'Adresse', 'Betriebsnummer', 'Ansprechpartner', 'ErinnerungWochenVorher', 'AktualisiertAm'],
   Flaechen: ['ID', 'Name', 'KatastralGemeinde', 'Parzellennummer', 'FlaecheHa', 'Besitzart', 'Nutzungsart', 'GeoJSON', 'Notiz', 'ErstelltVon', 'ErstelltAm', 'Aktiv'],
   SubFlaechen: ['ID', 'FlaecheID', 'Name', 'Rebsorte', 'FlaecheM2', 'Pflanzjahr', 'GeoJSON', 'Notiz', 'ErstelltVon', 'ErstelltAm', 'Aktiv'],
   Kulturen: ['Kultur', 'Kategorie', 'SaatmengeKgHa', 'DuengeempfehlungN_KgHa', 'DuengeempfehlungP_KgHa', 'DuengeempfehlungK_KgHa', 'UnvertraeglicheVorfruechte', 'AnbaupauseJahre', 'KartenFarbe', 'KartenSymbol'],
-  Fruchtfolge: ['ID', 'FlaecheID', 'Jahr', 'Kultur', 'Aussaatdatum', 'Erntedatum', 'SaatmengeKgHaBerechnet', 'SaatmengeGesamtKg', 'Notiz', 'ErstelltVon', 'ErstelltAm'],
+  Fruchtfolge: ['ID', 'FlaecheID', 'Jahr', 'Kultur', 'Aussaatdatum', 'Erntedatum', 'ErtragsMenge', 'ErtragsEinheit', 'SaatmengeKgHaBerechnet', 'SaatmengeGesamtKg', 'Notiz', 'ErstelltVon', 'ErstelltAm'],
   Schnitte: ['ID', 'FlaecheID', 'SchnittNummer', 'Datum', 'Erntetyp', 'ErtragsMenge', 'ErtragsEinheit', 'Notiz', 'ErfasstVon', 'ErfasstAm'],
   Duengungen: ['ID', 'FlaecheID', 'Datum', 'Duengerart', 'Menge', 'Einheit', 'Notiz', 'ErfasstVon', 'ErfasstAm'],
   WeinbauMassnahmen: ['ID', 'SubFlaecheID', 'Datum', 'Massnahme', 'Bio', 'Mittel', 'Notiz', 'ErfasstVon', 'ErfasstAm'],
-  Reifemessungen: ['ID', 'SubFlaecheID', 'Datum', 'Oechsle', 'Saeure', 'PH', 'Notiz', 'ErfasstVon', 'ErfasstAm'],
+  Reifemessungen: ['ID', 'SubFlaecheID', 'Datum', 'Oechsle', 'Brix', 'KMW', 'Saeure', 'PH', 'Notiz', 'ErfasstVon', 'ErfasstAm'],
   WeinLese: ['ID', 'SubFlaecheID', 'Datum', 'MengeKg', 'MostgewichtOechsle', 'Notiz', 'ErfasstVon', 'ErfasstAm'],
   Tanks: ['ID', 'Bezeichnung', 'VolumenLiter', 'AktuellerInhaltLiter', 'Sorte', 'Jahrgang', 'Notiz', 'ErstelltVon', 'ErstelltAm', 'Aktiv'],
-  KellerLogbuch: ['ID', 'TankID', 'Datum', 'Aktion', 'RestzuckerGL', 'Notiz', 'ErfasstVon', 'ErfasstAm'],
+  KellerLogbuch: ['ID', 'TankID', 'Datum', 'Aktion', 'Oechsle', 'Brix', 'KMW', 'RestzuckerGL', 'VerbleibendLiter', 'Notiz', 'ErfasstVon', 'ErfasstAm'],
   Abfuellungen: ['ID', 'TankID', 'Datum', 'FlaschenAnzahl', 'FlaschenGroesseMl', 'Charge', 'Notiz', 'ErfasstVon', 'ErfasstAm'],
+  Flaschenbestand: ['ID', 'Bezeichnung', 'Sorte', 'Jahrgang', 'FlaschenGroesseMl', 'AnzahlAktuell', 'Notiz', 'ErstelltVon', 'ErstelltAm', 'Aktiv'],
+  FlaschenBewegungen: ['ID', 'FlaschenbestandID', 'Datum', 'Typ', 'Anzahl', 'Erloes', 'Notiz', 'ErfasstVon'],
   Maschinen: ['ID', 'GeraeteNummer', 'Bezeichnung', 'Typ', 'Baujahr', 'Anschaffungspreis', 'Anschaffungsdatum', 'BetriebsstundenAktuell', 'FotoDriveFileID', 'FotoURL', 'DokumenteJSON', 'Notiz', 'ErstelltVon', 'ErstelltAm', 'Aktiv'],
   Betriebsstunden: ['ID', 'MaschinenID', 'Datum', 'StundenDelta', 'Notiz', 'ErfasstVon', 'ErfasstAm'],
   WartungsIntervalle: ['ID', 'MaschinenID', 'Bezeichnung', 'IntervallStunden', 'IntervallMonate', 'LetzteWartungStunden', 'LetzteWartungDatum', 'Notiz'],
@@ -52,6 +54,8 @@ var SHEET_SCHEMA = {
   TierErloese: ['ID', 'TierID', 'Datum', 'Art', 'Betrag', 'Beschreibung', 'ErfasstVon', 'ErfasstAm'],
   Tierbestand: ['ID', 'Tierart', 'Bezeichnung', 'AnzahlAktuell', 'Notiz', 'ErstelltVon', 'ErstelltAm', 'Aktiv'],
   TierbestandBewegungen: ['ID', 'TierbestandID', 'Datum', 'Typ', 'Anzahl', 'Notiz', 'ErfasstVon'],
+  Futtermittel: ['ID', 'Bezeichnung', 'Kategorie', 'Einheit', 'BestandAktuell', 'MindestBestand', 'Notiz', 'ErstelltVon', 'ErstelltAm', 'Aktiv'],
+  FuttermittelBewegungen: ['ID', 'FuttermittelID', 'Datum', 'Typ', 'Menge', 'HerkunftFlaecheID', 'Notiz', 'ErfasstVon'],
   AktivitaetsLog: ['Timestamp', 'UserEmail', 'UserName', 'Aktion', 'Details']
 };
 
@@ -69,6 +73,8 @@ var ENTITY_SHEET_MAP = {
   tanks: 'Tanks',
   kellerlogbuch: 'KellerLogbuch',
   abfuellungen: 'Abfuellungen',
+  flaschenbestand: 'Flaschenbestand',
+  flaschenbewegungen: 'FlaschenBewegungen',
   maschinen: 'Maschinen',
   betriebsstunden: 'Betriebsstunden',
   wartungsintervalle: 'WartungsIntervalle',
@@ -81,6 +87,8 @@ var ENTITY_SHEET_MAP = {
   tiererloese: 'TierErloese',
   tierbestand: 'Tierbestand',
   tierbestandbewegungen: 'TierbestandBewegungen',
+  futtermittel: 'Futtermittel',
+  futtermittelbewegungen: 'FuttermittelBewegungen',
   users: 'Users'
 };
 
@@ -731,16 +739,36 @@ function abfuellungCreate(payload, user) {
 
   return withLock(function () {
     var entry = createRecordRaw('Abfuellungen', payload, user);
+    var tank = findById('Tanks', tankId);
+    var flaschenAnzahl = Number(payload.FlaschenAnzahl) || 0;
+    var groesseMl = Number(payload.FlaschenGroesseMl) || 0;
 
-    var liter = (Number(payload.FlaschenAnzahl) || 0) * (Number(payload.FlaschenGroesseMl) || 0) / 1000;
-    if (liter > 0) {
-      var sheet = getSheet('Tanks');
-      var headers = getHeaders(sheet);
-      var tank = findById('Tanks', tankId);
-      if (tank) {
-        var neu = Math.max(0, Number(tank.AktuellerInhaltLiter || 0) - liter);
-        sheet.getRange(tank._row, headers.indexOf('AktuellerInhaltLiter') + 1).setValue(neu);
+    if (tank) {
+      // Abfüllung ist der letzte Schritt der Charge - das Fass gilt danach als
+      // vollständig geleert (unabhängig von Rundungsdifferenzen Liter/Flaschen).
+      var tankSheet = getSheet('Tanks');
+      var tankHeaders = getHeaders(tankSheet);
+      tankSheet.getRange(tank._row, tankHeaders.indexOf('AktuellerInhaltLiter') + 1).setValue(0);
+    }
+
+    if (flaschenAnzahl > 0 && tank) {
+      var bestand = sheetToObjects(getSheet('Flaschenbestand')).filter(function (b) {
+        return b.Aktiv !== false && b.Sorte === tank.Sorte && String(b.Jahrgang) === String(tank.Jahrgang) && Number(b.FlaschenGroesseMl) === groesseMl;
+      })[0];
+      if (!bestand) {
+        bestand = createRecordRaw('Flaschenbestand', {
+          Bezeichnung: (tank.Sorte || 'Wein') + ' ' + (tank.Jahrgang || ''), Sorte: tank.Sorte, Jahrgang: tank.Jahrgang,
+          FlaschenGroesseMl: groesseMl, AnzahlAktuell: 0
+        }, user);
       }
+      createRecordRaw('FlaschenBewegungen', {
+        FlaschenbestandID: bestand.ID, Datum: payload.Datum, Typ: 'Zugang (Abfüllung)',
+        Anzahl: flaschenAnzahl, Notiz: 'Abfüllung Charge ' + (payload.Charge || '')
+      }, user);
+      var fSheet = getSheet('Flaschenbestand');
+      var fHeaders = getHeaders(fSheet);
+      var bestandRow = findById('Flaschenbestand', bestand.ID);
+      fSheet.getRange(bestandRow._row, fHeaders.indexOf('AnzahlAktuell') + 1).setValue(Number(bestandRow.AnzahlAktuell || 0) + flaschenAnzahl);
     }
 
     logActivity(user, 'Abfüllung erfasst', tankId);

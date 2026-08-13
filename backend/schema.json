@@ -9,7 +9,8 @@
 
   "Betrieb": {
     "beschreibung": "Genau eine Datenzeile mit den Stammdaten des Hofs.",
-    "spalten": ["HofName", "Adresse", "Betriebsnummer", "Ansprechpartner", "AktualisiertAm"]
+    "spalten": ["HofName", "Adresse", "Betriebsnummer", "Ansprechpartner", "ErinnerungWochenVorher", "AktualisiertAm"],
+    "hinweise": { "ErinnerungWochenVorher": "Vorlaufzeit (in Wochen) für die Trockenstellen/Abkalbe-Erinnerungsbox im Zuchtkalender. Leer/0 = Standard 4 Wochen." }
   },
 
   "Flaechen": {
@@ -36,8 +37,9 @@
   },
 
   "Fruchtfolge": {
-    "beschreibung": "Jährliche Zuweisung von Kultur/Bewirtschaftung zu einer Wechselwiese/Ackerland-Fläche. Bestimmt die Kartenfarbe/-symbol des laufenden Jahres.",
-    "spalten": ["ID", "FlaecheID", "Jahr", "Kultur", "Aussaatdatum", "Erntedatum", "SaatmengeKgHaBerechnet", "SaatmengeGesamtKg", "Notiz", "ErstelltVon", "ErstelltAm"]
+    "beschreibung": "Jährliche Zuweisung von Kultur/Bewirtschaftung zu einer Wechselwiese/Ackerland-Fläche. Bestimmt die Kartenfarbe/-symbol des laufenden Jahres. Ertragsfelder (optional, bei Ernte ausgefüllt) lassen den Ertrag automatisch als Zugang in Futtermittel einfließen.",
+    "spalten": ["ID", "FlaecheID", "Jahr", "Kultur", "Aussaatdatum", "Erntedatum", "ErtragsMenge", "ErtragsEinheit", "SaatmengeKgHaBerechnet", "SaatmengeGesamtKg", "Notiz", "ErstelltVon", "ErstelltAm"],
+    "hinweise": { "ErtragsEinheit": "Ballen | kg | Tonnen" }
   },
 
   "Schnitte": {
@@ -49,7 +51,7 @@
   "Duengungen": {
     "beschreibung": "Feldbuch: Dünge-/Nährstoff-Nachweis je Parzelle für die behördliche Dokumentation.",
     "spalten": ["ID", "FlaecheID", "Datum", "Duengerart", "Menge", "Einheit", "Notiz", "ErfasstVon", "ErfasstAm"],
-    "hinweise": { "Duengerart": "Gülle | Mist | Kompost | Mineraldünger | Sonstiges", "Einheit": "m³ | kg" }
+    "hinweise": { "Duengerart": "Gülle | Mist | Mistsuppe | Kompost | Mineraldünger (Kunstdünger) | Sonstiges", "Einheit": "m³ | kg" }
   },
 
   "WeinbauMassnahmen": {
@@ -59,8 +61,8 @@
   },
 
   "Reifemessungen": {
-    "beschreibung": "Reifemessungen im Herbst je Rebanlage.",
-    "spalten": ["ID", "SubFlaecheID", "Datum", "Oechsle", "Saeure", "PH", "Notiz", "ErfasstVon", "ErfasstAm"]
+    "beschreibung": "Reifemessungen im Herbst je Rebanlage. Oechsle/Brix/KMW sind über eine Näherungsformel gegenseitig umrechenbar (Frontend berechnet die anderen beiden live, sobald eines eingetippt wird) - alle drei werden aber gespeichert.",
+    "spalten": ["ID", "SubFlaecheID", "Datum", "Oechsle", "Brix", "KMW", "Saeure", "PH", "Notiz", "ErfasstVon", "ErfasstAm"]
   },
 
   "WeinLese": {
@@ -74,14 +76,25 @@
   },
 
   "KellerLogbuch": {
-    "beschreibung": "Chronologisches Logbuch je Tank.",
-    "spalten": ["ID", "TankID", "Datum", "Aktion", "RestzuckerGL", "Notiz", "ErfasstVon", "ErfasstAm"],
+    "beschreibung": "Chronologisches Logbuch je Tank. Oechsle/Brix/KMW wie bei Reifemessungen gegenseitig umrechenbar. Bei Aktion 'Abstich' wird VerbleibendLiter angegeben (der Rest gilt als Trubverlust/entsorgt) und setzt Tanks.AktuellerInhaltLiter entsprechend.",
+    "spalten": ["ID", "TankID", "Datum", "Aktion", "Oechsle", "Brix", "KMW", "RestzuckerGL", "VerbleibendLiter", "Notiz", "ErfasstVon", "ErfasstAm"],
     "hinweise": { "Aktion": "Schwefelung | Abstich | Stabilisierung | Filtration | Sonstiges" }
   },
 
   "Abfuellungen": {
-    "beschreibung": "Abfüllungs-Protokoll je Tank/Charge - reduziert automatisch Tanks.AktuellerInhaltLiter.",
+    "beschreibung": "Abfüllungs-Protokoll je Tank/Charge - setzt Tanks.AktuellerInhaltLiter auf 0 (Abfüllung ist der letzte Schritt, das Fass gilt danach als vollständig geleert) und erhöht automatisch den passenden Flaschenbestand (Zuordnung über Tanks.Sorte/Jahrgang/FlaschenGroesseMl).",
     "spalten": ["ID", "TankID", "Datum", "FlaschenAnzahl", "FlaschenGroesseMl", "Charge", "Notiz", "ErfasstVon", "ErfasstAm"]
+  },
+
+  "Flaschenbestand": {
+    "beschreibung": "Flaschenlager je Sorte/Jahrgang/Flaschengröße. Wird automatisch bei Abfüllungen erhöht (siehe Abfuellungen), Austrag (Eigenbedarf/Verkauf) erfolgt über FlaschenBewegungen.",
+    "spalten": ["ID", "Bezeichnung", "Sorte", "Jahrgang", "FlaschenGroesseMl", "AnzahlAktuell", "Notiz", "ErstelltVon", "ErstelltAm", "Aktiv"]
+  },
+
+  "FlaschenBewegungen": {
+    "beschreibung": "Zu-/Abgangs-Log je Flaschenbestand. Bei Typ 'Verkauf' wird zusätzlich automatisch ein Erntevermarktung-Eintrag (Kategorie Wein) für die Finanzen-Auswertung angelegt.",
+    "spalten": ["ID", "FlaschenbestandID", "Datum", "Typ", "Anzahl", "Erloes", "Notiz", "ErfasstVon"],
+    "hinweise": { "Typ": "Zugang (Abfüllung) | Eigenbedarf | Verkauf" }
   },
 
   "Maschinen": {
@@ -154,6 +167,18 @@
     "beschreibung": "Zu-/Abgangs-Log für Tierbestand-Gruppen.",
     "spalten": ["ID", "TierbestandID", "Datum", "Typ", "Anzahl", "Notiz", "ErfasstVon"],
     "hinweise": { "Typ": "Zugang | Abgang | Verlust" }
+  },
+
+  "Futtermittel": {
+    "beschreibung": "Bestand je Futtermittel-Sorte (Heu, Silage, Kraftfutter, Stroh, ...). Wird automatisch erhöht, wenn Schnitte/Fruchtfolge-Ernten mit Ertragsmenge erfasst werden, und manuell für zugekaufte/eingelagerte Futtermittel angelegt bzw. aufgestockt. Der aktuelle Bestand steht direkt in BestandAktuell, das Log der einzelnen Zu-/Abgänge steht in FuttermittelBewegungen. MindestBestand (optional) löst eine Warnung im Dashboard aus, sobald BestandAktuell darunter fällt.",
+    "spalten": ["ID", "Bezeichnung", "Kategorie", "Einheit", "BestandAktuell", "MindestBestand", "Notiz", "ErstelltVon", "ErstelltAm", "Aktiv"],
+    "hinweise": { "Kategorie": "Heu | Silage | Grummet | Silomais | Kraftfutter | Stroh | Sonstiges", "Einheit": "Ballen | kg | Tonnen" }
+  },
+
+  "FuttermittelBewegungen": {
+    "beschreibung": "Zu-/Abgangs-Log je Futtermittel-Bestand.",
+    "spalten": ["ID", "FuttermittelID", "Datum", "Typ", "Menge", "HerkunftFlaecheID", "Notiz", "ErfasstVon"],
+    "hinweise": { "Typ": "Zugang (Ernte) | Zugang (Manuell) | Verfüttert | Verkauft | Verlust", "HerkunftFlaecheID": "Nur bei 'Zugang (Ernte)' gesetzt - Referenz auf die erntende Fläche" }
   },
 
   "AktivitaetsLog": {

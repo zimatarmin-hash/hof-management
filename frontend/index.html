@@ -100,14 +100,15 @@
   </header>
 
   <div class="flex flex-1 overflow-hidden relative">
-    <div id="navBackdrop" class="hidden fixed inset-0 bg-black/40 z-40"></div>
+    <div id="navBackdrop" class="hidden fixed inset-0 h-dvh bg-black/40 z-40"></div>
 
     <!-- Navigation -->
-    <nav id="mainNav" class="hidden md:flex w-64 md:w-56 bg-white border-r p-3 flex-col gap-1 shrink-0 fixed md:static top-[57px] bottom-0 left-0 z-50 overflow-y-auto shadow-2xl md:shadow-none">
+    <nav id="mainNav" class="hidden md:flex w-64 md:w-56 bg-white border-r p-3 flex-col gap-1 shrink-0 fixed md:static top-[57px] h-[calc(100dvh-57px)] md:h-auto left-0 z-50 overflow-y-auto shadow-2xl md:shadow-none">
       <button data-section="dashboard" class="nav-btn text-left px-3 py-2 rounded hover:bg-green-100">📊 Dashboard</button>
       <button data-section="flaechen" class="nav-btn text-left px-3 py-2 rounded hover:bg-green-100">🗺️ Flächen</button>
       <button data-section="fuhrpark" class="nav-btn text-left px-3 py-2 rounded hover:bg-green-100">🚜 Fuhrpark</button>
       <button data-section="vieh" class="nav-btn text-left px-3 py-2 rounded hover:bg-green-100">🐄 Viehhaltung</button>
+      <button data-section="futtermittel" class="nav-btn text-left px-3 py-2 rounded hover:bg-green-100">🌾 Futtermittel</button>
       <button data-section="weinbau" class="nav-btn text-left px-3 py-2 rounded hover:bg-green-100">🍇 Weinbau &amp; Keller</button>
       <button data-section="finanzen" class="nav-btn text-left px-3 py-2 rounded hover:bg-green-100">💶 Finanzen</button>
       <hr class="my-2">
@@ -122,6 +123,11 @@
         <h2 class="text-2xl font-extrabold text-gray-800 tracking-tight">Dashboard</h2>
         <div id="dashboardCards" class="grid grid-cols-2 md:grid-cols-4 gap-4"></div>
         <div id="dashboardWartungsAlarm" class="hidden bg-red-50 border border-red-300 text-red-800 rounded-xl p-4 text-sm space-y-1"></div>
+        <div id="dashboardFuttermittelBox" class="hidden bg-amber-50 border border-amber-300 text-amber-800 rounded-xl p-4 text-sm space-y-1"></div>
+        <div id="dashboardWetterBox" class="hidden bg-white rounded-xl shadow p-4">
+          <h3 class="font-semibold mb-2">🌦️ Wetter &amp; Boden (Dauergrünland)</h3>
+          <div id="dashboardWetterInhalt" class="text-sm text-gray-600"></div>
+        </div>
         <div class="bg-white rounded-xl shadow p-4">
           <h3 class="font-semibold mb-2">Gerade aktiv</h3>
           <div id="dashboardActiveUsers" class="text-sm text-gray-600"></div>
@@ -210,6 +216,7 @@
         <div class="flex gap-2 border-b">
           <button data-wtab="rebanlagen" class="wtab-btn px-4 py-2 font-medium border-b-2 border-green-700">Rebanlagen</button>
           <button data-wtab="keller" class="wtab-btn px-4 py-2 font-medium border-b-2 border-transparent text-gray-500">Keller</button>
+          <button data-wtab="flaschenlager" class="wtab-btn px-4 py-2 font-medium border-b-2 border-transparent text-gray-500">Flaschenlager</button>
         </div>
         <div id="wtab-rebanlagen" class="wtab-panel">
           <div id="rebanlagenTable" class="overflow-x-auto bg-white rounded-xl shadow p-4"></div>
@@ -219,6 +226,12 @@
             <button id="btnNeuerTank" class="bg-green-700 text-white px-3 py-2 rounded shadow hover:bg-green-800 text-sm">+ Neuer Tank</button>
           </div>
           <div id="tanksGrid" class="grid gap-4 md:grid-cols-2 xl:grid-cols-3"></div>
+        </div>
+        <div id="wtab-flaschenlager" class="wtab-panel hidden space-y-4">
+          <div class="flex justify-end">
+            <button id="btnNeuesFlaschenbestand" class="bg-green-700 text-white px-3 py-2 rounded shadow hover:bg-green-800 text-sm">+ Bestand manuell anlegen</button>
+          </div>
+          <div id="flaschenlagerTable" class="overflow-x-auto bg-white rounded-xl shadow p-4"></div>
         </div>
       </section>
 
@@ -242,6 +255,18 @@
         </div>
         <div id="vtab-bestand" class="vtab-panel hidden">
           <div id="bestandTable" class="overflow-x-auto bg-white rounded-xl shadow p-4"></div>
+        </div>
+      </section>
+
+      <!-- FUTTERMITTEL -->
+      <section id="section-futtermittel" class="app-section hidden space-y-4">
+        <div class="flex items-center justify-between flex-wrap gap-2">
+          <h2 class="text-2xl font-extrabold text-gray-800 tracking-tight">Futtermittel</h2>
+          <button id="btnNeuesFuttermittel" class="bg-green-700 text-white px-3 py-2 rounded shadow hover:bg-green-800 text-sm">+ Bestand anlegen</button>
+        </div>
+        <p class="text-sm text-gray-500">Erträge aus Schnitten (Feldbuch) und Ernten (Fruchtfolge) landen hier automatisch. Zukauf/sonstige Futtermittel (Kraftfutter, Stroh, ...) können hier auch manuell angelegt werden.</p>
+        <div class="bg-white rounded-xl shadow p-4">
+          <div id="futtermittelTable" class="overflow-x-auto"></div>
         </div>
       </section>
 

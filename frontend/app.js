@@ -315,7 +315,7 @@ function openDetailModal(title, renderFn) {
 // ============================================================================
 // GENERISCHE TABELLE
 // ============================================================================
-function renderTable(container, columns, rows, { onEdit, onDelete, extraButtons } = {}) {
+function renderTable(container, columns, rows, { onEdit, onDelete, extraButtons, onRowClick } = {}) {
   if (!rows.length) {
     container.innerHTML = `<p class="text-gray-400 text-sm py-4">Keine Einträge vorhanden.</p>`;
     return;
@@ -326,7 +326,7 @@ function renderTable(container, columns, rows, { onEdit, onDelete, extraButtons 
   columns.forEach(c => html += `<th class="py-2 pr-4">${c.label}</th>`);
   html += `<th></th></tr></thead><tbody>`;
   rows.forEach((row, idx) => {
-    html += `<tr class="border-b hover:bg-gray-50">`;
+    html += `<tr class="border-b hover:bg-gray-50${onRowClick ? ' cursor-pointer' : ''}" data-row-idx="${idx}">`;
     columns.forEach(c => html += `<td class="py-2 pr-4">${c.format ? c.format(row) : (row[c.key] ?? '')}</td>`);
     html += `<td class="py-2 pr-2 text-right whitespace-nowrap">`;
     if (extraButtons) html += extraButtons(row, idx);
@@ -340,6 +340,10 @@ function renderTable(container, columns, rows, { onEdit, onDelete, extraButtons 
   if (onDelete) container.querySelectorAll('.btn-delete').forEach(b => b.onclick = () => {
     if (confirm('Wirklich löschen?')) onDelete(rows[b.dataset.idx]);
   });
+  if (onRowClick) container.querySelectorAll('tbody tr').forEach(tr => tr.addEventListener('click', (ev) => {
+    if (ev.target.closest('button')) return;
+    onRowClick(rows[tr.dataset.rowIdx]);
+  }));
 }
 
 // ============================================================================
@@ -372,6 +376,7 @@ async function showSection(name) {
   if (name === 'flaechen') await loadFlaechenSection();
   if (name === 'fuhrpark') await loadFuhrparkSection();
   if (name === 'vieh') await loadViehSection();
+  if (name === 'futtermittel') await loadFuttermittelSection();
   if (name === 'weinbau') await loadWeinbauSection();
   if (name === 'finanzen') await loadFinanzenSection();
   if (name === 'einstellungen') await loadEinstellungenSection();
@@ -468,19 +473,27 @@ async function handleDeepLink() {
 // DASHBOARD
 // ============================================================================
 async function loadDashboard() {
-  const { s, maschinen, intervalle } = await cachedBatch({
+  const { s, maschinen, intervalle, futtermittel, tanks, flaschenbestand } = await cachedBatch({
     s: { action: 'dashboard.summary' },
     maschinen: { action: 'maschinen.list' },
-    intervalle: { action: 'wartungsintervalle.list' }
+    intervalle: { action: 'wartungsintervalle.list' },
+    futtermittel: { action: 'futtermittel.list' },
+    tanks: { action: 'tanks.list' },
+    flaschenbestand: { action: 'flaschenbestand.list' }
   });
   state.maschinen = maschinen.filter(m => m.Aktiv !== false);
   state.wartungsintervalle = intervalle;
+  const futtermittelAktiv = futtermittel.filter(f => f.Aktiv !== false);
+  const fassInhaltGesamt = tanks.filter(t => t.Aktiv !== false).reduce((sum, t) => sum + Number(t.AktuellerInhaltLiter || 0), 0);
+  const flaschenGesamt = flaschenbestand.filter(f => f.Aktiv !== false).reduce((sum, f) => sum + Number(f.AnzahlAktuell || 0), 0);
 
   const cards = [
     ['Flächen', `${s.flaecheGesamtHa.toFixed(2)} ha`, `${s.flaechenAnzahl} Parzellen`],
     ['Maschinen', s.maschinenAnzahl, 'im Fuhrpark'],
     ['Tiere', s.tiereAnzahl, 'Einzeltiere (lebend)'],
-    ['Saldo', euro(s.finanzen.saldo), 'Erlöse - Kosten gesamt']
+    ['Saldo', euro(s.finanzen.saldo), 'Erlöse - Kosten gesamt'],
+    ['Futtermittel', futtermittelAktiv.length, 'Sorten im Lager'],
+    ['Keller', `${fassInhaltGesamt.toFixed(0)} l`, `+ ${flaschenGesamt} Flaschen im Lager`]
   ];
   document.getElementById('dashboardCards').innerHTML = cards.map(c => `
     <div class="bg-white rounded-xl shadow p-4">
@@ -501,10 +514,80 @@ async function loadDashboard() {
     alarmBox.classList.add('hidden');
   }
 
+  const futterBox = document.getElementById('dashboardFuttermittelBox');
+  const futterKnapp = futtermittelAktiv.filter(f => f.MindestBestand && Number(f.BestandAktuell || 0) < Number(f.MindestBestand));
+  if (futterKnapp.length) {
+    futterBox.classList.remove('hidden');
+    futterBox.innerHTML = '<b>⚠️ Futtermittel knapp:</b>' + futterKnapp.map(f =>
+      `<div>${f.Bezeichnung}: ${Number(f.BestandAktuell || 0).toFixed(1)} ${f.Einheit} (Mindestbestand ${f.MindestBestand} ${f.Einheit})</div>`).join('');
+  } else {
+    futterBox.classList.add('hidden');
+  }
+
   const activeEl = document.getElementById('dashboardActiveUsers');
   activeEl.innerHTML = s.aktiveNutzer.length
     ? s.aktiveNutzer.map(u => `<div>🟢 ${u.name} — zuletzt aktiv ${fmtDate(u.lastSeen)} ${new Date(u.lastSeen).toLocaleTimeString('de-DE')}</div>`).join('')
     : '<p class="text-gray-400">Aktuell sonst niemand aktiv.</p>';
+
+  loadWetterBox();
+}
+
+// Wetter/Boden-Übersicht für den Koordinaten-Mittelwert der Dauergrünwiesen (Open-Meteo,
+// kein API-Key nötig). Läuft bewusst NICHT über cachedList/cachedBatch - Wetterdaten
+// sollen bei jedem Dashboard-Aufruf frisch sein, nicht aus dem Sitzungs-Cache kommen.
+async function loadWetterBox() {
+  const box = document.getElementById('dashboardWetterBox');
+  const inhalt = document.getElementById('dashboardWetterInhalt');
+  try {
+    const flaechen = await cachedList('flaechen.list');
+    const dauerwiesen = flaechen.filter(f => f.Nutzungsart === 'Dauerwiese' && f.GeoJSON);
+    const quelle = dauerwiesen.length ? dauerwiesen : flaechen.filter(f => f.GeoJSON);
+    if (!quelle.length) { box.classList.add('hidden'); return; }
+    const zentren = quelle.map(f => {
+      try { return computeCentroid(JSON.parse(f.GeoJSON)); } catch (e) { return null; }
+    }).filter(Boolean);
+    if (!zentren.length) { box.classList.add('hidden'); return; }
+    const lat = zentren.reduce((sum, p) => sum + p.lat, 0) / zentren.length;
+    const lng = zentren.reduce((sum, p) => sum + p.lng, 0) / zentren.length;
+
+    const url = `https://api.open-meteo.com/v1/forecast?latitude=${lat.toFixed(4)}&longitude=${lng.toFixed(4)}&daily=precipitation_sum,et0_fao_evapotranspiration&past_days=7&forecast_days=7&timezone=auto`;
+    const res = await fetch(url);
+    if (!res.ok) throw new Error('Wetterdienst nicht erreichbar');
+    const data = await res.json();
+    const tage = data.daily.time;
+    const niederschlag = data.daily.precipitation_sum;
+    const verdunstung = data.daily.et0_fao_evapotranspiration;
+    const heuteStr = new Date().toISOString().slice(0, 10);
+    let heuteIdx = tage.indexOf(heuteStr);
+    if (heuteIdx < 0) heuteIdx = 7; // Fallback: past_days=7, "heute" ist normalerweise Index 7
+
+    const niederschlag7 = niederschlag.slice(Math.max(0, heuteIdx - 7), heuteIdx).reduce((sum, v) => sum + (v || 0), 0);
+    const verdunstung7 = verdunstung.slice(Math.max(0, heuteIdx - 7), heuteIdx).reduce((sum, v) => sum + (v || 0), 0);
+
+    // Mähfenster: ab heute den ersten Zeitraum mit mind. 2 aufeinanderfolgenden trockenen Tagen (<1mm) suchen
+    let maehfenster = null;
+    for (let i = heuteIdx; i < tage.length - 1; i++) {
+      if ((niederschlag[i] || 0) < 1 && (niederschlag[i + 1] || 0) < 1) {
+        let ende = i + 1;
+        while (ende + 1 < tage.length && (niederschlag[ende + 1] || 0) < 1) ende++;
+        maehfenster = { von: tage[i], bis: tage[ende] };
+        break;
+      }
+    }
+
+    inhalt.innerHTML = `
+      <div class="grid grid-cols-2 gap-3">
+        <div><span class="text-gray-400 text-xs">Niederschlag letzte 7 Tage</span><br><b>${niederschlag7.toFixed(1)} mm</b></div>
+        <div><span class="text-gray-400 text-xs">Verdunstung letzte 7 Tage</span><br><b>${verdunstung7.toFixed(1)} mm</b></div>
+      </div>
+      ${maehfenster
+        ? `<div class="mt-2 text-green-700">🌤️ Gutes Mähfenster: ${fmtDate(maehfenster.von)} – ${fmtDate(maehfenster.bis)} (trocken)</div>`
+        : `<div class="mt-2 text-gray-500">Kein trockenes Mähfenster in den nächsten Tagen erkennbar.</div>`}
+    `;
+    box.classList.remove('hidden');
+  } catch (e) {
+    box.classList.add('hidden');
+  }
 }
 
 // ============================================================================
@@ -529,6 +612,24 @@ function initMapIfNeeded() {
   state.drawnItems = new L.FeatureGroup().addTo(state.map);
   state.sammelLayerGroup = new L.FeatureGroup().addTo(state.map);
   renderFlaechenLegende();
+
+  // Schnellerfassung direkt aus dem Karten-Popup (Schnitt/Düngung), ohne Umweg über
+  // das Feldbuch-Panel - Popup-Inhalte werden von Leaflet als rohes HTML eingefügt,
+  // daher hier per Delegation nach dem Öffnen verdrahten statt vorab addEventListener.
+  state.map.on('popupopen', (e) => {
+    const el = e.popup.getElement();
+    if (!el) return;
+    el.querySelectorAll('[data-popup-action]').forEach(btn => {
+      btn.onclick = () => {
+        const flaeche = state.flaechen.find(f => f.ID === btn.dataset.flaecheId);
+        if (!flaeche) return;
+        state.aktiveFlaecheFuerFeldbuch = flaeche;
+        state.map.closePopup();
+        if (btn.dataset.popupAction === 'schnitt') openSchnittModal(flaeche);
+        else if (btn.dataset.popupAction === 'duengung') openDuengungModal(flaeche);
+      };
+    });
+  });
 
   state.drawControl = new L.Control.Draw({
     draw: { polygon: true, marker: false, circle: false, circlemarker: false, polyline: false, rectangle: true },
@@ -816,6 +917,29 @@ function computeCentroid(geojson) {
   return L.latLng(lat, lng);
 }
 
+function flaechePopupHtml(f) {
+  const { icon, label } = getKulturDarstellung(f);
+  let html = `<b>${f.Name}</b><br>${icon} ${label} · ${Number(f.FlaecheHa).toFixed(2)} ha`;
+  if (f.Nutzungsart === 'Dauerwiese') {
+    const jahr = new Date().getFullYear();
+    const schnitteJahr = (state.schnitte || [])
+      .filter(s => s.FlaecheID === f.ID && new Date(s.Datum).getFullYear() === jahr)
+      .sort((a, b) => Number(a.SchnittNummer) - Number(b.SchnittNummer));
+    html += `<br><br>✂️ <b>${schnitteJahr.length}/3 Schnitte ${jahr}</b>`;
+    if (schnitteJahr.length) {
+      html += '<br>' + schnitteJahr.map(s => `${s.SchnittNummer}. Schnitt: ${new Date(s.Datum).toLocaleDateString('de-DE')}${s.ErtragsMenge ? ` (${s.ErtragsMenge} ${s.ErtragsEinheit || ''})` : ''}`).join('<br>');
+    }
+  }
+  // Schnellerfassung: bei Dauer- und Wechselwiese direkt aus dem Popup Schnitt/Düngung erfassen
+  if (f.Nutzungsart === 'Dauerwiese' || f.Nutzungsart === 'Wechselwiese') {
+    html += `<div class="mt-2 pt-2 border-t flex gap-2 flex-wrap">
+      <button data-popup-action="schnitt" data-flaeche-id="${f.ID}" class="text-xs bg-green-600 text-white px-2 py-1 rounded">✂️ Schnitt erfassen</button>
+      <button data-popup-action="duengung" data-flaeche-id="${f.ID}" class="text-xs bg-amber-600 text-white px-2 py-1 rounded">💩 Düngung erfassen</button>
+    </div>`;
+  }
+  return html;
+}
+
 function renderFlaechenOnMap() {
   state.flaechenLayerGroup.clearLayers();
   state.flaechenLayerById = {};
@@ -825,7 +949,7 @@ function renderFlaechenOnMap() {
       const geo = JSON.parse(f.GeoJSON);
       const { farbe, icon, label } = getKulturDarstellung(f);
       const layer = L.geoJSON(geo, { style: { color: farbe, weight: 2, fillColor: farbe, fillOpacity: 0.4 } })
-        .bindPopup(`<b>${f.Name}</b><br>${icon} ${label} · ${Number(f.FlaecheHa).toFixed(2)} ha`);
+        .bindPopup(() => flaechePopupHtml(f));
       layer.on('click', () => zoomZuFlaeche(f));
       layer.addTo(state.flaechenLayerGroup);
       state.flaechenLayerById[f.ID] = layer;
@@ -1109,14 +1233,16 @@ async function loadFlaechenSection() {
   initMapIfNeeded();
   setTimeout(() => state.map.invalidateSize(), 100);
 
-  const { flaechen, kulturen, fruchtfolge } = await cachedBatch({
+  const { flaechen, kulturen, fruchtfolge, schnitte } = await cachedBatch({
     flaechen: { action: 'flaechen.list' },
     kulturen: { action: 'kulturen.list' },
-    fruchtfolge: { action: 'fruchtfolge.list' }
+    fruchtfolge: { action: 'fruchtfolge.list' },
+    schnitte: { action: 'schnitte.list' }
   });
   state.flaechen = flaechen.filter(f => f.Aktiv !== false);
   state.kulturen = kulturen;
   state.fruchtfolge = fruchtfolge;
+  state.schnitte = schnitte;
   renderFlaechenOnMap();
 
   renderTable(document.getElementById('flaechenTable'),
@@ -1131,8 +1257,8 @@ async function loadFlaechenSection() {
     {
       onEdit: (row) => openFlaecheModal(row),
       onDelete: async (row) => { await safeCall('flaechen.delete', { id: row.ID }, 'Fläche gelöscht.'); cacheRemove('flaechen.list', row.ID); await loadFlaechenSection(); },
-      extraButtons: (row) => `<button data-id="${row.ID}" class="btn-zoom text-blue-600 hover:underline mr-2">🔍 Zoom</button>` +
-        `<button data-id="${row.ID}" class="btn-erweitern text-purple-700 hover:underline mr-2">🧩 Erweitern</button>` +
+      onRowClick: (row) => zoomZuFlaeche(row),
+      extraButtons: (row) => `<button data-id="${row.ID}" class="btn-erweitern text-purple-700 hover:underline mr-2">🧩 Erweitern</button>` +
         (row.GeoJSON ? `<button data-id="${row.ID}" class="btn-teilen text-orange-700 hover:underline mr-2">✂️ Teilen</button>` : '') +
         (row.GeoJSON ? `<button data-id="${row.ID}" class="btn-neuberechnen text-teal-700 hover:underline mr-2" title="Fläche aus der gespeicherten Geometrie neu berechnen (behebt ggf. alte, zu hohe Werte)">🔄 ha neu berechnen</button>` : '') +
         `<button data-id="${row.ID}" class="btn-feldbuch text-gray-700 hover:underline mr-2">📋 Feldbuch</button>` +
@@ -1142,9 +1268,6 @@ async function loadFlaechenSection() {
           ? `<button data-id="${row.ID}" class="btn-rebanlagen text-purple-700 hover:underline mr-2">🍇 Rebanlagen</button>` : '')
     });
 
-  document.querySelectorAll('.btn-zoom').forEach(b => {
-    b.onclick = () => zoomZuFlaeche(state.flaechen.find(f => f.ID === b.dataset.id));
-  });
   document.querySelectorAll('.btn-erweitern').forEach(b => {
     b.onclick = () => startSammelModus(state.flaechen.find(f => f.ID === b.dataset.id));
   });
@@ -1188,11 +1311,15 @@ async function reloadFruchtfolgeTable() {
       { key: 'Kultur', label: 'Kultur' },
       { label: 'Aussaat', format: r => fmtDate(r.Aussaatdatum) },
       { label: 'Ernte', format: r => fmtDate(r.Erntedatum) },
+      { label: 'Ertrag', format: r => r.ErtragsMenge ? `${r.ErtragsMenge} ${r.ErtragsEinheit || ''}` : '-' },
       { label: 'Saatmenge gesamt', format: r => `${Number(r.SaatmengeGesamtKg || 0).toFixed(1)} kg` },
       { label: 'Düngeempfehlung (N/P/K)', format: r => formatDuengeempfehlung(r.Kultur, state.aktiveFlaecheFuerFruchtfolge.FlaecheHa) }
     ],
     rows,
-    { onDelete: async (row) => { await safeCall('fruchtfolge.delete', { id: row.ID }, 'Eintrag gelöscht.'); cacheRemove('fruchtfolge.list', row.ID); await reloadFruchtfolgeTable(); } });
+    {
+      onEdit: (row) => openFruchtfolgeModal(state.aktiveFlaecheFuerFruchtfolge, row),
+      onDelete: async (row) => { await safeCall('fruchtfolge.delete', { id: row.ID }, 'Eintrag gelöscht.'); cacheRemove('fruchtfolge.list', row.ID); await reloadFruchtfolgeTable(); }
+    });
 }
 
 // Liefert die Düngeempfehlung (N/P/K in kg gesamt) für eine Kultur auf einer
@@ -1216,33 +1343,51 @@ function formatDuengeempfehlung(kulturName, flaecheHa) {
   return `N ${e.n.toFixed(0)} / P ${e.p.toFixed(0)} / K ${e.k.toFixed(0)} kg`;
 }
 
-function openFruchtfolgeModal(flaeche) {
+function openFruchtfolgeModal(flaeche, initial = {}) {
   openFormModal({
-    title: `Kultur zuweisen: ${flaeche.Name}`,
+    title: initial.ID ? `Fruchtfolge bearbeiten: ${flaeche.Name}` : `Kultur zuweisen: ${flaeche.Name}`,
     fields: [
       { key: 'Jahr', label: 'Jahr', type: 'number', required: true, help: `z.B. ${new Date().getFullYear()}` },
       { key: 'Kultur', label: 'Kultur', type: 'select', options: state.kulturen.map(k => k.Kultur), required: true },
       { key: 'Aussaatdatum', label: 'Aussaatdatum', type: 'date' },
       { key: 'Erntedatum', label: 'Erntedatum', type: 'date' },
+      { key: 'ErtragsMenge', label: 'Ertragsmenge (bei Ernte, z.B. Silomais)', type: 'number', step: '0.1' },
+      { key: 'ErtragsEinheit', label: 'Einheit', type: 'select', options: ['Ballen', 'kg', 'Tonnen'] },
       { key: 'Notiz', label: 'Notiz', type: 'textarea' }
     ],
+    initial,
     onSubmit: async (values) => {
-      const check = await safeCall('fruchtfolge.check', { flaecheId: flaeche.ID, jahr: values.Jahr, kultur: values.Kultur });
-      if (!check.ok) {
-        const weiter = confirm('Fruchtfolge-Warnung:\n\n' + check.warnings.join('\n') + '\n\nTrotzdem speichern?');
-        if (!weiter) return;
+      if (!initial.ID) {
+        const check = await safeCall('fruchtfolge.check', { flaecheId: flaeche.ID, jahr: values.Jahr, kultur: values.Kultur });
+        if (!check.ok) {
+          const weiter = confirm('Fruchtfolge-Warnung:\n\n' + check.warnings.join('\n') + '\n\nTrotzdem speichern?');
+          if (!weiter) return;
+        }
       }
       const kulturInfo = state.kulturen.find(k => k.Kultur === values.Kultur);
       const saatmengeHa = kulturInfo ? Number(kulturInfo.SaatmengeKgHa) : 0;
       const saatmengeGesamt = saatmengeHa * Number(flaeche.FlaecheHa || 0);
 
-      const saved = await safeCall('fruchtfolge.create', {
+      const payload = {
         FlaecheID: flaeche.ID, Jahr: values.Jahr, Kultur: values.Kultur,
         Aussaatdatum: values.Aussaatdatum, Erntedatum: values.Erntedatum,
+        ErtragsMenge: values.ErtragsMenge, ErtragsEinheit: values.ErtragsEinheit,
         SaatmengeKgHaBerechnet: saatmengeHa, SaatmengeGesamtKg: saatmengeGesamt,
         Notiz: values.Notiz
-      }, `Kultur zugewiesen. Saatmenge: ${saatmengeGesamt.toFixed(1)} kg.`);
+      };
+      const saved = initial.ID
+        ? await safeCall('fruchtfolge.update', { id: initial.ID, ...payload }, 'Fruchtfolge aktualisiert.')
+        : await safeCall('fruchtfolge.create', payload, `Kultur zugewiesen. Saatmenge: ${saatmengeGesamt.toFixed(1)} kg.`);
       cacheUpsert('fruchtfolge.list', saved);
+
+      // Ernte nur EINMAL automatisch in Futtermittel verbuchen (nicht bei jeder weiteren Bearbeitung erneut)
+      if (values.ErtragsMenge && !initial.ErtragsMenge) {
+        await wandereErtragInFuttermittel({
+          Bezeichnung: values.Kultur, Kategorie: values.Kultur, Einheit: values.ErtragsEinheit,
+          Menge: values.ErtragsMenge, HerkunftFlaecheID: flaeche.ID, Datum: values.Erntedatum,
+          Notiz: `Ernte ${values.Jahr} ${flaeche.Name}`
+        });
+      }
       await reloadFruchtfolgeTable();
     }
   });
@@ -1401,6 +1546,13 @@ function openSchnittModal(flaeche) {
     onSubmit: async (values) => {
       const saved = await safeCall('schnitte.create', { FlaecheID: flaeche.ID, ...values }, 'Schnitt erfasst.');
       cacheUpsert('schnitte.list', saved);
+      if (values.ErtragsMenge) {
+        await wandereErtragInFuttermittel({
+          Bezeichnung: values.Erntetyp || 'Heu', Kategorie: values.Erntetyp || 'Heu', Einheit: values.ErtragsEinheit,
+          Menge: values.ErtragsMenge, HerkunftFlaecheID: flaeche.ID, Datum: values.Datum,
+          Notiz: `${values.SchnittNummer}. Schnitt ${flaeche.Name}`
+        });
+      }
       await reloadFeldbuchTabellen();
     }
   });
@@ -1411,7 +1563,7 @@ function openDuengungModal(flaeche) {
     title: `Düngung erfassen: ${flaeche.Name}`,
     fields: [
       { key: 'Datum', label: 'Datum', type: 'date', required: true },
-      { key: 'Duengerart', label: 'Düngerart', type: 'select', options: ['Gülle', 'Mist', 'Kompost', 'Mineraldünger', 'Sonstiges'] },
+      { key: 'Duengerart', label: 'Düngerart', type: 'select', options: ['Gülle', 'Mist', 'Mistsuppe', 'Kompost', 'Mineraldünger (Kunstdünger)', 'Sonstiges'] },
       { key: 'Menge', label: 'Menge', type: 'number', step: '0.1', required: true },
       { key: 'Einheit', label: 'Einheit', type: 'select', options: ['m³', 'kg'] },
       { key: 'Notiz', label: 'Notiz', type: 'textarea' }
@@ -1521,7 +1673,9 @@ function openMaschineModal(initial = {}) {
       if (values.Foto) {
         const up = await Api.uploadFile(values.Foto, 'maschine');
         payload.FotoDriveFileID = up.fileId;
-        payload.FotoURL = up.url;
+        // up.url ist Drives Vorschauseite (gut als Link, aber nicht als <img src> darstellbar) -
+        // fürs direkte Einbetten als Bild braucht es Drives Thumbnail-Endpunkt.
+        payload.FotoURL = `https://drive.google.com/thumbnail?id=${up.fileId}&sz=w1000`;
       }
       const saved = initial.ID
         ? await safeCall('maschinen.update', { id: initial.ID, ...payload }, 'Aktualisiert.')
@@ -1805,8 +1959,10 @@ async function loadViehSection() {
 // ---- Zuchtkalender: Erinnerungsbox für anstehende Trockenstellen/Abkalbungen ----
 function renderZuchtErinnerungen() {
   const box = document.getElementById('zuchtErinnerungen');
+  const wochenVorher = Number(state.betrieb && state.betrieb.ErinnerungWochenVorher) || 4;
+  const tageVorher = wochenVorher * 7;
   const heute = new Date();
-  const in30Tagen = new Date(heute.getTime() + 30 * 86400000);
+  const stichtag = new Date(heute.getTime() + tageVorher * 86400000);
   const anstehend = state.zuchtereignisse
     .filter(z => z.Typ === 'Besamung' || z.Typ === 'Deckung')
     .flatMap(z => {
@@ -1815,17 +1971,17 @@ function renderZuchtErinnerungen() {
       const eintraege = [];
       const abkalb = new Date(z.VoraussichtlichesAbkalbedatum);
       const trocken = new Date(z.TrockenstellenAb);
-      if (!isNaN(trocken) && trocken >= heute && trocken <= in30Tagen) {
+      if (!isNaN(trocken) && trocken >= heute && trocken <= stichtag) {
         eintraege.push(`🐄 ${tierLabel}: Trockenstellen ab ${fmtDate(trocken)}`);
       }
-      if (!isNaN(abkalb) && abkalb >= heute && abkalb <= in30Tagen) {
+      if (!isNaN(abkalb) && abkalb >= heute && abkalb <= stichtag) {
         eintraege.push(`🐄 ${tierLabel}: voraussichtliche Abkalbung ${fmtDate(abkalb)}`);
       }
       return eintraege;
     });
   if (anstehend.length) {
     box.classList.remove('hidden');
-    box.innerHTML = '<b>📅 Anstehend (nächste 30 Tage):</b><br>' + anstehend.join('<br>');
+    box.innerHTML = `<b>📅 Anstehend (nächste ${wochenVorher} Wochen):</b><br>` + anstehend.join('<br>');
   } else {
     box.classList.add('hidden');
   }
@@ -2029,6 +2185,138 @@ function openBewegungModal(bestand) {
 }
 
 // ============================================================================
+// FUTTERMITTEL
+// ============================================================================
+const FUTTERMITTEL_KATEGORIEN = ['Heu', 'Silage', 'Grummet', 'Silomais', 'Kraftfutter', 'Stroh', 'Sonstiges'];
+const FUTTERMITTEL_EINHEITEN = ['Ballen', 'kg', 'Tonnen'];
+
+// Verbucht einen Ernteertrag (Schnitt oder Fruchtfolge-Ernte) automatisch als Zugang
+// im passenden Futtermittel-Bestand - legt den Bestand bei Bedarf neu an.
+async function wandereErtragInFuttermittel({ Bezeichnung, Kategorie, Einheit, Menge, HerkunftFlaecheID, Datum, Notiz }) {
+  if (!Menge || Number(Menge) <= 0) return;
+  // Für den Futtermittel-Bestand zählen wir nur noch in generischen Einheiten (Ballen/kg/Tonnen) -
+  // die feinere Unterscheidung Rundballen/Quaderballen bleibt im Feldbuch-Datensatz erhalten.
+  if (Einheit === 'Rundballen' || Einheit === 'Quaderballen') Einheit = 'Ballen';
+  const futtermittel = await cachedList('futtermittel.list');
+  let eintrag = futtermittel.find(f => f.Aktiv !== false && f.Bezeichnung.toLowerCase() === String(Bezeichnung).toLowerCase() && f.Einheit === Einheit);
+  if (!eintrag) {
+    eintrag = await safeCall('futtermittel.create', { Bezeichnung, Kategorie: Kategorie || 'Sonstiges', Einheit, BestandAktuell: 0 });
+    cacheUpsert('futtermittel.list', eintrag);
+  }
+  await safeCall('futtermittelbewegungen.create', {
+    FuttermittelID: eintrag.ID, Datum: Datum || new Date().toISOString().slice(0, 10),
+    Typ: 'Zugang (Ernte)', Menge, HerkunftFlaecheID: HerkunftFlaecheID || '', Notiz: Notiz || ''
+  });
+  invalidateCache('futtermittelbewegungen.list');
+  const aktualisiert = await safeCall('futtermittel.update', { id: eintrag.ID, BestandAktuell: Number(eintrag.BestandAktuell || 0) + Number(Menge) });
+  cacheUpsert('futtermittel.list', aktualisiert);
+  toast(`${Menge} ${Einheit || ''} ${Bezeichnung} zu Futtermittel hinzugefügt.`);
+}
+
+async function loadFuttermittelSection() {
+  const { futtermittel, bewegungen } = await cachedBatch({
+    futtermittel: { action: 'futtermittel.list' },
+    bewegungen: { action: 'futtermittelbewegungen.list' }
+  });
+  state.futtermittel = futtermittel.filter(f => f.Aktiv !== false);
+
+  const vor30Tagen = new Date(Date.now() - 30 * 86400000);
+  const verbrauchProTag = (futtermittelId) => bewegungen
+    .filter(b => b.FuttermittelID === futtermittelId && b.Typ === 'Verfüttert' && new Date(b.Datum) >= vor30Tagen)
+    .reduce((sum, b) => sum + Number(b.Menge || 0), 0) / 30;
+
+  renderTable(document.getElementById('futtermittelTable'),
+    [
+      { key: 'Bezeichnung', label: 'Bezeichnung' },
+      { key: 'Kategorie', label: 'Kategorie' },
+      { label: 'Bestand', format: r => {
+          const knapp = r.MindestBestand && Number(r.BestandAktuell || 0) < Number(r.MindestBestand);
+          return `<span class="${knapp ? 'text-red-600 font-semibold' : ''}">${Number(r.BestandAktuell || 0).toFixed(1)} ${r.Einheit || ''}${knapp ? ' ⚠️' : ''}</span>`;
+        } },
+      { label: 'Mindestbestand', format: r => r.MindestBestand ? `${r.MindestBestand} ${r.Einheit || ''}` : '-' },
+      { label: 'Ø Verbrauch/Tag (30 Tage)', format: r => { const v = verbrauchProTag(r.ID); return v > 0 ? `${v.toFixed(1)} ${r.Einheit || ''}` : '-'; } }
+    ],
+    state.futtermittel,
+    {
+      onEdit: (row) => openFuttermittelModal(row),
+      onDelete: async (row) => { await safeCall('futtermittel.delete', { id: row.ID }, 'Gelöscht.'); cacheRemove('futtermittel.list', row.ID); await loadFuttermittelSection(); },
+      extraButtons: (row) => `<button data-id="${row.ID}" class="btn-futter-buchen text-green-700 hover:underline mr-2">📉 Verbrauch/Verkauf</button>`
+        + `<button data-id="${row.ID}" class="btn-futter-verlauf text-gray-700 hover:underline mr-2">📜 Verlauf</button>`
+    });
+
+  document.querySelectorAll('.btn-futter-buchen').forEach(b => {
+    b.onclick = () => openFuttermittelBewegungModal(state.futtermittel.find(f => f.ID === b.dataset.id));
+  });
+  document.querySelectorAll('.btn-futter-verlauf').forEach(b => {
+    b.onclick = () => openFuttermittelVerlauf(state.futtermittel.find(f => f.ID === b.dataset.id));
+  });
+
+  document.getElementById('btnNeuesFuttermittel').onclick = () => openFuttermittelModal();
+}
+
+function openFuttermittelModal(initial = {}) {
+  openFormModal({
+    title: initial.ID ? 'Futtermittel bearbeiten' : 'Neuer Futtermittel-Bestand',
+    fields: [
+      { key: 'Bezeichnung', label: 'Bezeichnung (z.B. Kraftfutter, Heu, Stroh)', required: true },
+      { key: 'Kategorie', label: 'Kategorie', type: 'select', options: FUTTERMITTEL_KATEGORIEN, required: true },
+      { key: 'Einheit', label: 'Einheit', type: 'select', options: FUTTERMITTEL_EINHEITEN, required: true },
+      { key: 'BestandAktuell', label: 'Bestand aktuell', type: 'number', step: '0.1', required: true },
+      { key: 'MindestBestand', label: 'Mindestbestand (Warnung im Dashboard bei Unterschreitung)', type: 'number', step: '0.1' },
+      { key: 'Notiz', label: 'Notiz', type: 'textarea' }
+    ],
+    initial: initial.ID ? initial : { BestandAktuell: 0 },
+    onSubmit: async (values) => {
+      const saved = initial.ID
+        ? await safeCall('futtermittel.update', { id: initial.ID, ...values }, 'Aktualisiert.')
+        : await safeCall('futtermittel.create', values, 'Futtermittel-Bestand angelegt.');
+      cacheUpsert('futtermittel.list', saved);
+      await loadFuttermittelSection();
+    }
+  });
+}
+
+function openFuttermittelBewegungModal(bestand) {
+  openFormModal({
+    title: `Verbrauch/Verkauf/Zugang: ${bestand.Bezeichnung} (${Number(bestand.BestandAktuell || 0).toFixed(1)} ${bestand.Einheit || ''} vorhanden)`,
+    fields: [
+      { key: 'Datum', label: 'Datum', type: 'date', required: true },
+      { key: 'Typ', label: 'Typ', type: 'select', options: ['Verfüttert', 'Verkauft', 'Verlust', 'Zugang (Manuell)'], required: true },
+      { key: 'Menge', label: `Menge (${bestand.Einheit || ''})`, type: 'number', step: '0.1', required: true },
+      { key: 'Notiz', label: 'Notiz' }
+    ],
+    onSubmit: async (values) => {
+      const istZugang = values.Typ === 'Zugang (Manuell)';
+      const delta = istZugang ? Number(values.Menge) : -Number(values.Menge);
+      if (!istZugang && Number(values.Menge) > Number(bestand.BestandAktuell || 0)) {
+        toast('Menge übersteigt den aktuellen Bestand.', true);
+        return;
+      }
+      await safeCall('futtermittelbewegungen.create', { FuttermittelID: bestand.ID, ...values }, 'Bewegung erfasst.');
+      invalidateCache('futtermittelbewegungen.list');
+      const saved = await safeCall('futtermittel.update', { id: bestand.ID, BestandAktuell: Number(bestand.BestandAktuell || 0) + delta });
+      cacheUpsert('futtermittel.list', saved);
+      await loadFuttermittelSection();
+    }
+  });
+}
+
+async function openFuttermittelVerlauf(bestand) {
+  const alle = await cachedList('futtermittelbewegungen.list');
+  const bewegungen = alle.filter(b => b.FuttermittelID === bestand.ID).sort((a, b) => new Date(b.Datum) - new Date(a.Datum));
+  openDetailModal(`Verlauf: ${bestand.Bezeichnung}`, (body) => {
+    renderTable(body,
+      [
+        { label: 'Datum', format: r => fmtDate(r.Datum) },
+        { key: 'Typ', label: 'Typ' },
+        { label: 'Menge', format: r => `${r.Menge} ${bestand.Einheit || ''}` },
+        { key: 'Notiz', label: 'Notiz' }
+      ],
+      bewegungen, {});
+  });
+}
+
+// ============================================================================
 // WEINBAU & KELLERWIRTSCHAFT
 // ============================================================================
 document.querySelectorAll('.wtab-btn').forEach(b => b.addEventListener('click', () => {
@@ -2041,6 +2329,32 @@ document.querySelectorAll('.wtab-btn').forEach(b => b.addEventListener('click', 
 }));
 
 const WEINBAU_MASSNAHMEN = ['Rebschnitt', 'Biegen-Binden', 'Auslauben', 'Maehen-Mulchen', 'Netze-schliessen', 'Reifekontrolle', 'Pflanzenschutz', 'Sonstiges'];
+
+// Näherungsweise gegenseitige Umrechnung Oechsle/Brix/KMW (übliche Faustformeln aus der
+// Praxis, keine laborgenaue Umrechnung - reicht aber für die Lesezeitpunkt-Einschätzung).
+// Oechsle ≈ Brix × 4.25, Oechsle ≈ KMW × 5.
+function wireMostgewichtKonvertierung() {
+  const feldOe = document.getElementById('field_Oechsle');
+  const feldBrix = document.getElementById('field_Brix');
+  const feldKmw = document.getElementById('field_KMW');
+  if (!feldOe || !feldBrix || !feldKmw) return;
+  const aktualisiere = (quelle) => {
+    if (quelle === feldOe && feldOe.value !== '') {
+      const oe = Number(feldOe.value);
+      feldBrix.value = (oe / 4.25).toFixed(1);
+      feldKmw.value = (oe / 5).toFixed(1);
+    } else if (quelle === feldBrix && feldBrix.value !== '') {
+      const brix = Number(feldBrix.value);
+      feldOe.value = (brix * 4.25).toFixed(1);
+      feldKmw.value = (brix * 4.25 / 5).toFixed(1);
+    } else if (quelle === feldKmw && feldKmw.value !== '') {
+      const kmw = Number(feldKmw.value);
+      feldOe.value = (kmw * 5).toFixed(1);
+      feldBrix.value = (kmw * 5 / 4.25).toFixed(1);
+    }
+  };
+  [feldOe, feldBrix, feldKmw].forEach(f => f.addEventListener('input', () => aktualisiere(f)));
+}
 
 async function loadWeinbauSection() {
   const { subflaechen, flaechen } = await cachedBatch({
@@ -2067,6 +2381,85 @@ async function loadWeinbauSection() {
   });
 
   await loadKellerTab();
+  await loadFlaschenlagerTab();
+}
+
+async function loadFlaschenlagerTab() {
+  const bestand = await cachedList('flaschenbestand.list');
+  state.flaschenbestand = bestand.filter(b => b.Aktiv !== false);
+
+  renderTable(document.getElementById('flaschenlagerTable'),
+    [
+      { key: 'Bezeichnung', label: 'Bezeichnung' },
+      { label: 'Flaschengröße', format: r => `${r.FlaschenGroesseMl || ''} ml` },
+      { key: 'AnzahlAktuell', label: 'Flaschen im Lager' }
+    ],
+    state.flaschenbestand,
+    {
+      onEdit: (row) => openFlaschenbestandModal(row),
+      onDelete: async (row) => { await safeCall('flaschenbestand.delete', { id: row.ID }, 'Gelöscht.'); cacheRemove('flaschenbestand.list', row.ID); await loadFlaschenlagerTab(); },
+      extraButtons: (row) => `<button data-id="${row.ID}" class="btn-flasche-austragen text-green-700 hover:underline mr-2">📤 Austragen</button>`
+    });
+
+  document.querySelectorAll('.btn-flasche-austragen').forEach(b => {
+    b.onclick = () => openFlaschenAustragModal(state.flaschenbestand.find(f => f.ID === b.dataset.id));
+  });
+
+  const btnNeu = document.getElementById('btnNeuesFlaschenbestand');
+  if (btnNeu) btnNeu.onclick = () => openFlaschenbestandModal();
+}
+
+function openFlaschenbestandModal(initial = {}) {
+  openFormModal({
+    title: initial.ID ? 'Flaschenbestand bearbeiten' : 'Flaschenbestand manuell anlegen',
+    fields: [
+      { key: 'Bezeichnung', label: 'Bezeichnung (z.B. Vernatsch 2025)', required: true },
+      { key: 'Sorte', label: 'Sorte' },
+      { key: 'Jahrgang', label: 'Jahrgang', type: 'number' },
+      { key: 'FlaschenGroesseMl', label: 'Flaschengröße (ml)', type: 'number', required: true },
+      { key: 'AnzahlAktuell', label: 'Anzahl Flaschen', type: 'number', required: true },
+      { key: 'Notiz', label: 'Notiz', type: 'textarea' }
+    ],
+    initial: initial.ID ? initial : { FlaschenGroesseMl: 750, AnzahlAktuell: 0 },
+    onSubmit: async (values) => {
+      const saved = initial.ID
+        ? await safeCall('flaschenbestand.update', { id: initial.ID, ...values }, 'Aktualisiert.')
+        : await safeCall('flaschenbestand.create', values, 'Flaschenbestand angelegt.');
+      cacheUpsert('flaschenbestand.list', saved);
+      await loadFlaschenlagerTab();
+    }
+  });
+}
+
+function openFlaschenAustragModal(bestand) {
+  openFormModal({
+    title: `Austragen: ${bestand.Bezeichnung} (${bestand.AnzahlAktuell} Flaschen vorhanden)`,
+    fields: [
+      { key: 'Datum', label: 'Datum', type: 'date', required: true },
+      { key: 'Typ', label: 'Typ', type: 'select', options: ['Eigenbedarf', 'Verkauf'], required: true },
+      { key: 'Anzahl', label: 'Anzahl Flaschen', type: 'number', required: true },
+      { key: 'Erloes', label: 'Erlös (€, nur bei Verkauf)', type: 'number', step: '0.01' },
+      { key: 'Notiz', label: 'Notiz' }
+    ],
+    onSubmit: async (values) => {
+      if (Number(values.Anzahl) > Number(bestand.AnzahlAktuell || 0)) {
+        toast('Anzahl übersteigt den aktuellen Bestand.', true);
+        return;
+      }
+      await safeCall('flaschenbewegungen.create', { FlaschenbestandID: bestand.ID, ...values }, 'Austrag erfasst.');
+      invalidateCache('flaschenbewegungen.list');
+      const saved = await safeCall('flaschenbestand.update', { id: bestand.ID, AnzahlAktuell: Number(bestand.AnzahlAktuell || 0) - Number(values.Anzahl) });
+      cacheUpsert('flaschenbestand.list', saved);
+      if (values.Typ === 'Verkauf' && Number(values.Erloes) > 0) {
+        const erntevermarktung = await safeCall('erntevermarktung.create', {
+          Datum: values.Datum, Kategorie: 'Wein', Menge: values.Anzahl, Einheit: 'Flaschen',
+          Erloes: values.Erloes, Beschreibung: `Verkauf ${bestand.Bezeichnung}`
+        }, 'Erlös in Finanzen erfasst.');
+        cacheUpsert('erntevermarktung.list', erntevermarktung);
+      }
+      await loadFlaschenlagerTab();
+    }
+  });
 }
 
 function openRebanlageDetail(subFlaeche) {
@@ -2125,25 +2518,30 @@ function openRebanlageDetail(subFlaeche) {
     const reloadReife = async () => {
       const alle = await cachedList('reifemessungen.list');
       renderTable(document.getElementById('reifeTable'),
-        [{ label: 'Datum', format: r => fmtDate(r.Datum) }, { key: 'Oechsle', label: '°Oechsle' }, { key: 'Saeure', label: 'Säure' }, { key: 'PH', label: 'pH' }],
+        [{ label: 'Datum', format: r => fmtDate(r.Datum) }, { key: 'Oechsle', label: '°Oechsle' }, { key: 'Brix', label: '°Brix' }, { key: 'KMW', label: '°KMW' }, { key: 'Saeure', label: 'Säure' }, { key: 'PH', label: 'pH' }],
         alle.filter(m => m.SubFlaecheID === subFlaeche.ID).sort((a, b) => new Date(b.Datum) - new Date(a.Datum)),
         { onDelete: async (row) => { await safeCall('reifemessungen.delete', { id: row.ID }, 'Gelöscht.'); cacheRemove('reifemessungen.list', row.ID); await reloadReife(); } });
     };
-    document.getElementById('btnNeueReifemessung').onclick = () => openFormModal({
-      title: 'Reifemessung erfassen',
-      fields: [
-        { key: 'Datum', label: 'Datum', type: 'date', required: true },
-        { key: 'Oechsle', label: '°Oechsle / Brix / KMW', type: 'number', step: '0.1' },
-        { key: 'Saeure', label: 'Säure (g/l)', type: 'number', step: '0.1' },
-        { key: 'PH', label: 'pH-Wert', type: 'number', step: '0.01' },
-        { key: 'Notiz', label: 'Notiz' }
-      ],
-      onSubmit: async (values) => {
-        const saved = await safeCall('reifemessungen.create', { SubFlaecheID: subFlaeche.ID, ...values }, 'Messung erfasst.');
-        cacheUpsert('reifemessungen.list', saved);
-        await reloadReife();
-      }
-    });
+    document.getElementById('btnNeueReifemessung').onclick = () => {
+      openFormModal({
+        title: 'Reifemessung erfassen',
+        fields: [
+          { key: 'Datum', label: 'Datum', type: 'date', required: true },
+          { key: 'Oechsle', label: '°Oechsle', type: 'number', step: '0.1', help: 'Eines der drei Felder eintragen - die anderen werden automatisch (näherungsweise) umgerechnet.' },
+          { key: 'Brix', label: '°Brix', type: 'number', step: '0.1' },
+          { key: 'KMW', label: '°KMW', type: 'number', step: '0.1' },
+          { key: 'Saeure', label: 'Säure (g/l)', type: 'number', step: '0.1' },
+          { key: 'PH', label: 'pH-Wert', type: 'number', step: '0.01' },
+          { key: 'Notiz', label: 'Notiz' }
+        ],
+        onSubmit: async (values) => {
+          const saved = await safeCall('reifemessungen.create', { SubFlaecheID: subFlaeche.ID, ...values }, 'Messung erfasst.');
+          cacheUpsert('reifemessungen.list', saved);
+          await reloadReife();
+        }
+      });
+      wireMostgewichtKonvertierung();
+    };
 
     const reloadErnte = async () => {
       const alle = await cachedList('weinlese.list');
@@ -2233,24 +2631,41 @@ function openKellerLogbuchDetail(tank) {
     const reload = async () => {
       const alle = await cachedList('kellerlogbuch.list');
       renderTable(document.getElementById('logTable'),
-        [{ label: 'Datum', format: r => fmtDate(r.Datum) }, { key: 'Aktion', label: 'Aktion' }, { key: 'RestzuckerGL', label: 'Restzucker (g/l)' }, { key: 'Notiz', label: 'Notiz' }],
+        [{ label: 'Datum', format: r => fmtDate(r.Datum) }, { key: 'Aktion', label: 'Aktion' },
+         { label: 'Mostgewicht', format: r => [r.Oechsle && `${r.Oechsle}°Oe`, r.Brix && `${r.Brix}°Brix`, r.KMW && `${r.KMW}°KMW`].filter(Boolean).join(' / ') || '-' },
+         { key: 'RestzuckerGL', label: 'Restzucker (g/l)' },
+         { label: 'Verbleibend', format: r => r.VerbleibendLiter ? `${r.VerbleibendLiter} l` : '-' },
+         { key: 'Notiz', label: 'Notiz' }],
         alle.filter(l => l.TankID === tank.ID).sort((a, b) => new Date(b.Datum) - new Date(a.Datum)),
         { onDelete: async (row) => { await safeCall('kellerlogbuch.delete', { id: row.ID }, 'Gelöscht.'); cacheRemove('kellerlogbuch.list', row.ID); await reload(); } });
     };
-    document.getElementById('btnNeuerLogEintrag').onclick = () => openFormModal({
-      title: 'Logbuch-Eintrag',
-      fields: [
-        { key: 'Datum', label: 'Datum', type: 'date', required: true },
-        { key: 'Aktion', label: 'Aktion', type: 'select', options: ['Schwefelung', 'Abstich', 'Stabilisierung', 'Filtration', 'Sonstiges'] },
-        { key: 'RestzuckerGL', label: 'Restzucker (g/l)', type: 'number', step: '0.1' },
-        { key: 'Notiz', label: 'Notiz', type: 'textarea' }
-      ],
-      onSubmit: async (values) => {
-        const saved = await safeCall('kellerlogbuch.create', { TankID: tank.ID, ...values }, 'Eintrag gespeichert.');
-        cacheUpsert('kellerlogbuch.list', saved);
-        await reload();
-      }
-    });
+    document.getElementById('btnNeuerLogEintrag').onclick = () => {
+      openFormModal({
+        title: 'Logbuch-Eintrag',
+        fields: [
+          { key: 'Datum', label: 'Datum', type: 'date', required: true },
+          { key: 'Aktion', label: 'Aktion', type: 'select', options: ['Schwefelung', 'Abstich', 'Stabilisierung', 'Filtration', 'Sonstiges'] },
+          { key: 'Oechsle', label: '°Oechsle', type: 'number', step: '0.1', help: 'Eines der drei Felder eintragen - die anderen werden automatisch (näherungsweise) umgerechnet.' },
+          { key: 'Brix', label: '°Brix', type: 'number', step: '0.1' },
+          { key: 'KMW', label: '°KMW', type: 'number', step: '0.1' },
+          { key: 'RestzuckerGL', label: 'Restzucker (g/l)', type: 'number', step: '0.1' },
+          { key: 'VerbleibendLiter', label: 'Nur bei Abstich: verbleibend im Fass (Liter, Rest gilt als entsorgt)', type: 'number', step: '1' },
+          { key: 'Notiz', label: 'Notiz', type: 'textarea' }
+        ],
+        onSubmit: async (values) => {
+          const saved = await safeCall('kellerlogbuch.create', { TankID: tank.ID, ...values }, 'Eintrag gespeichert.');
+          cacheUpsert('kellerlogbuch.list', saved);
+          if (values.Aktion === 'Abstich' && values.VerbleibendLiter !== '') {
+            const aktualisierterTank = await safeCall('tanks.update', { id: tank.ID, AktuellerInhaltLiter: Number(values.VerbleibendLiter) }, 'Fassinhalt aktualisiert.');
+            cacheUpsert('tanks.list', aktualisierterTank);
+            tank.AktuellerInhaltLiter = aktualisierterTank.AktuellerInhaltLiter;
+            await loadKellerTab();
+          }
+          await reload();
+        }
+      });
+      wireMostgewichtKonvertierung();
+    };
     await reload();
   });
 }
@@ -2266,13 +2681,15 @@ function openAbfuellungModal(tank) {
       { key: 'Notiz', label: 'Notiz' }
     ],
     onSubmit: async (values) => {
-      await safeCall('abfuellungen.create', { TankID: tank.ID, ...values }, 'Abfüllung erfasst - Tankinhalt aktualisiert.');
-      // Backend gibt nur die Abfüllung zurück, nicht den aktualisierten Tank - Inhalt
-      // lokal mit derselben Formel wie im Backend nachrechnen statt neu zu laden.
-      const liter = (Number(values.FlaschenAnzahl) || 0) * (Number(values.FlaschenGroesseMl) || 0) / 1000;
+      await safeCall('abfuellungen.create', { TankID: tank.ID, ...values }, 'Abfüllung erfasst - Tank geleert, Flaschenbestand aktualisiert.');
+      // Backend leert den Tank vollständig und legt/erhöht automatisch den passenden
+      // Flaschenbestand - da wir dessen Rückgabewerte hier nicht direkt bekommen,
+      // betroffene Caches invalidieren statt veraltete Werte lokal nachzurechnen.
       const cachedTank = (listCache['tanks.list'] || []).find(t => t.ID === tank.ID);
-      if (cachedTank) cachedTank.AktuellerInhaltLiter = Math.max(0, Number(cachedTank.AktuellerInhaltLiter || 0) - liter);
+      if (cachedTank) cachedTank.AktuellerInhaltLiter = 0;
+      invalidateCache('flaschenbestand.list');
       await loadKellerTab();
+      await loadFlaschenlagerTab();
     }
   });
 }
@@ -2457,12 +2874,13 @@ async function loadEinstellungenSection() {
 
   document.getElementById('betriebForm').innerHTML = [
     { key: 'HofName', label: 'Hofname' }, { key: 'Adresse', label: 'Adresse' },
-    { key: 'Betriebsnummer', label: 'Betriebsnummer' }, { key: 'Ansprechpartner', label: 'Ansprechpartner' }
+    { key: 'Betriebsnummer', label: 'Betriebsnummer' }, { key: 'Ansprechpartner', label: 'Ansprechpartner' },
+    { key: 'ErinnerungWochenVorher', label: 'Zuchtkalender-Erinnerung (Wochen vorher)', type: 'number', help: 'Wie viele Wochen vor Trockenstellen/Abkalbung die Erinnerungsbox in der Viehhaltung erscheinen soll. Standard: 4 Wochen.' }
   ].map(f => fieldHtml(f, (betrieb || {})[f.key])).join('');
 
   document.getElementById('btnBetriebSpeichern').onclick = async () => {
     const payload = {};
-    ['HofName', 'Adresse', 'Betriebsnummer', 'Ansprechpartner'].forEach(k => {
+    ['HofName', 'Adresse', 'Betriebsnummer', 'Ansprechpartner', 'ErinnerungWochenVorher'].forEach(k => {
       const el = document.getElementById('field_' + k);
       if (el) payload[k] = el.value;
     });
