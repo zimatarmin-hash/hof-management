@@ -17,8 +17,12 @@ const Auth = {
     this._onSignedIn = onSignedIn;
     this._onSignedOut = onSignedOut;
 
-    const stored = sessionStorage.getItem('hof_id_token');
-    const storedProfile = sessionStorage.getItem('hof_profile');
+    // localStorage statt sessionStorage: sessionStorage wird komplett gelöscht, sobald die
+    // App/der Tab geschlossen wird - auf dem Handy killt das Betriebssystem installierte PWAs
+    // im Hintergrund ständig, wodurch man sich immer neu anmelden musste, obwohl das Google-
+    // Token (gültig bis zu 1 Std.) eigentlich noch gar nicht abgelaufen war.
+    const stored = localStorage.getItem('hof_id_token');
+    const storedProfile = localStorage.getItem('hof_profile');
     if (stored && storedProfile && !this._isExpired(stored)) {
       this.idToken = stored;
       this.profile = JSON.parse(storedProfile);
@@ -58,8 +62,8 @@ const Auth = {
     const payload = decodeJwtPayload(credential);
     this.idToken = credential;
     this.profile = { email: payload.email, name: payload.name, picture: payload.picture };
-    sessionStorage.setItem('hof_id_token', credential);
-    sessionStorage.setItem('hof_profile', JSON.stringify(this.profile));
+    localStorage.setItem('hof_id_token', credential);
+    localStorage.setItem('hof_profile', JSON.stringify(this.profile));
     this._onSignedIn && this._onSignedIn(this.profile);
   },
 
@@ -67,8 +71,8 @@ const Auth = {
     google.accounts.id.disableAutoSelect();
     this.idToken = null;
     this.profile = null;
-    sessionStorage.removeItem('hof_id_token');
-    sessionStorage.removeItem('hof_profile');
+    localStorage.removeItem('hof_id_token');
+    localStorage.removeItem('hof_profile');
     this._onSignedOut && this._onSignedOut();
   },
 
