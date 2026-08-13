@@ -41,7 +41,7 @@ var SHEET_SCHEMA = {
   Tanks: ['ID', 'Bezeichnung', 'VolumenLiter', 'AktuellerInhaltLiter', 'Sorte', 'Jahrgang', 'Notiz', 'ErstelltVon', 'ErstelltAm', 'Aktiv'],
   KellerLogbuch: ['ID', 'TankID', 'Datum', 'Aktion', 'Oechsle', 'Brix', 'KMW', 'RestzuckerGL', 'VerbleibendLiter', 'Notiz', 'ErfasstVon', 'ErfasstAm'],
   Abfuellungen: ['ID', 'TankID', 'Datum', 'FlaschenAnzahl', 'FlaschenGroesseMl', 'Charge', 'Notiz', 'ErfasstVon', 'ErfasstAm'],
-  Flaschenbestand: ['ID', 'Bezeichnung', 'Sorte', 'Jahrgang', 'FlaschenGroesseMl', 'AnzahlAktuell', 'Notiz', 'ErstelltVon', 'ErstelltAm', 'Aktiv'],
+  Flaschenbestand: ['ID', 'Bezeichnung', 'Sorte', 'Jahrgang', 'FlaschenGroesseMl', 'AnzahlAktuell', 'FotoDriveFileID', 'FotoURL', 'Notiz', 'ErstelltVon', 'ErstelltAm', 'Aktiv'],
   FlaschenBewegungen: ['ID', 'FlaschenbestandID', 'Datum', 'Typ', 'Anzahl', 'Erloes', 'Notiz', 'ErfasstVon'],
   Maschinen: ['ID', 'GeraeteNummer', 'Bezeichnung', 'Typ', 'Baujahr', 'Anschaffungspreis', 'Anschaffungsdatum', 'BetriebsstundenAktuell', 'FotoDriveFileID', 'FotoURL', 'DokumenteJSON', 'Notiz', 'ErstelltVon', 'ErstelltAm', 'Aktiv'],
   Betriebsstunden: ['ID', 'MaschinenID', 'Datum', 'StundenDelta', 'Notiz', 'ErfasstVon', 'ErfasstAm'],
@@ -793,10 +793,12 @@ function getOrCreateSubfolder(parent, name) {
   return it.hasNext() ? it.next() : parent.createFolder(name);
 }
 
+var UPLOAD_KATEGORIE_ORDNER = { tier: 'Tiere', maschine: 'Maschinen', flasche: 'Flaschen' };
+
 function uploadFile(payload) {
   if (!payload.base64Data || !payload.fileName) throw new Error('Datei fehlt.');
   var root = getOrCreateDriveRootFolder();
-  var sub = getOrCreateSubfolder(root, payload.category === 'tier' ? 'Tiere' : 'Maschinen');
+  var sub = getOrCreateSubfolder(root, UPLOAD_KATEGORIE_ORDNER[payload.category] || 'Sonstiges');
 
   var bytes = Utilities.base64Decode(payload.base64Data);
   var blob = Utilities.newBlob(bytes, payload.mimeType || 'application/octet-stream', payload.fileName);

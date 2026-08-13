@@ -93,8 +93,8 @@
   },
 
   "Flaschenbestand": {
-    "beschreibung": "Flaschenlager je Sorte/Jahrgang/Flaschengröße. Wird automatisch bei Abfüllungen erhöht (siehe Abfuellungen), Austrag (Eigenbedarf/Verkauf) erfolgt über FlaschenBewegungen.",
-    "spalten": ["ID", "Bezeichnung", "Sorte", "Jahrgang", "FlaschenGroesseMl", "AnzahlAktuell", "Notiz", "ErstelltVon", "ErstelltAm", "Aktiv"]
+    "beschreibung": "Flaschenlager je Sorte/Jahrgang/Flaschengröße. Wird automatisch bei Abfüllungen erhöht (siehe Abfuellungen), Austrag (Eigenbedarf/Verkauf) erfolgt über FlaschenBewegungen. FotoURL (optional) zeigt ein Etikett-Foto in der Übersicht.",
+    "spalten": ["ID", "Bezeichnung", "Sorte", "Jahrgang", "FlaschenGroesseMl", "AnzahlAktuell", "FotoDriveFileID", "FotoURL", "Notiz", "ErstelltVon", "ErstelltAm", "Aktiv"]
   },
 
   "FlaschenBewegungen": {

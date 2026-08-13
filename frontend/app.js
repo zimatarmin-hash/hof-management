@@ -452,22 +452,19 @@ async function refreshActiveUsersLabel() {
 // ============================================================================
 // DASHBOARD
 // ============================================================================
-// Eine Dashboard-Kachel als HTML-String. Ohne "details" ist sie eine reine Stat-Anzeige
-// (nicht aufklappbar); mit "details" bekommt sie einen Chevron und lässt sich per Klick/
-// Touch aufklappen (siehe delegierter Click-Handler weiter unten).
-function dashTileHtml({ id, icon, title, value, sub, details, alert }) {
-  const expandable = details !== undefined && details !== null;
-  return `<div class="dash-tile${expandable ? '' : ' dash-tile-static'}${alert ? ' dash-tile-alert' : ''}" data-tile-id="${id}">
-    <div class="dash-tile-head">
-      <div class="dash-tile-icon" id="dashIcon-${id}">${icon}</div>
-      <div class="dash-tile-summary">
-        <div class="dash-tile-title">${title}</div>
-        <div class="dash-tile-value" id="dashVal-${id}">${value}</div>
-        ${sub !== undefined ? `<div class="dash-tile-sub" id="dashSub-${id}">${sub}</div>` : ''}
-      </div>
-      ${expandable ? '<div class="dash-tile-chevron">›</div>' : ''}
-    </div>
-    ${expandable ? `<div class="dash-tile-details-wrap"><div class="dash-tile-details" id="dashDet-${id}">${details}</div></div>` : ''}
+// Eine Dashboard-Kachel als HTML-String: feste/quadratische Größe, Kopf (Icon/Titel/
+// Wert) + darunter eine scrollende Kurz-Vorschau (wächst nie über die Kachel hinaus -
+// bei mehr Zeilen wird innerhalb der Kachel gescrollt). Der Pfeil oben rechts (nur wenn
+// "expandable" gesetzt ist) öffnet ein Detail-Fenster mit der vollständigen, klickbaren
+// Liste; ein Klick irgendwo sonst auf die Kachel springt direkt in die zugehörige Sektion.
+function dashTileHtml({ id, icon, title, value, sub, preview, section, alert, expandable }) {
+  return `<div class="dash-tile${alert ? ' dash-tile-alert' : ''}" data-tile-id="${id}" data-section="${section || ''}">
+    ${expandable ? `<button type="button" class="dash-tile-arrow" data-modal-id="${id}" aria-label="Details öffnen">›</button>` : ''}
+    <div class="dash-tile-icon" id="dashIcon-${id}">${icon}</div>
+    <div class="dash-tile-title">${title}</div>
+    <div class="dash-tile-value" id="dashVal-${id}">${value}</div>
+    ${sub !== undefined ? `<div class="dash-tile-sub" id="dashSub-${id}">${sub}</div>` : ''}
+    <div class="dash-tile-preview" id="dashDet-${id}">${preview || ''}</div>
   </div>`;
 }
 function drow(label, value) {
@@ -476,11 +473,61 @@ function drow(label, value) {
 // Ein einziger delegierter Click-Handler statt einzelner Listener pro Kachel - bleibt auch
 // gültig, wenn einzelne Kachel-Inhalte später asynchron nachgeladen/gepatcht werden (Wetter).
 document.getElementById('dashboardGrid').addEventListener('click', (e) => {
-  const head = e.target.closest('.dash-tile-head');
-  if (!head) return;
-  const tile = head.closest('.dash-tile');
-  if (!tile.classList.contains('dash-tile-static')) tile.classList.toggle('expanded');
+  const arrow = e.target.closest('.dash-tile-arrow');
+  if (arrow) { openDashTileDetail(arrow.dataset.modalId); return; }
+  const tile = e.target.closest('.dash-tile');
+  if (!tile) return;
+  if (tile.dataset.section) showSection(tile.dataset.section);
 });
+
+// Vollständige, klickbare Detail-Ansicht je Kachel - nutzt dieselben Formulare/Aktionen
+// wie die jeweilige Sektion, damit man von hier aus direkt handeln kann statt nur zu lesen.
+function openDashTileDetail(id) {
+  const d = state.dashboardData || {};
+  if (id === 'tiere') {
+    openDetailModal('Tiere', (body) => {
+      renderTable(body,
+        [{ key: 'Ohrmarke', label: 'Ohrmarke' }, { key: 'Tierart', label: 'Tierart' }, { key: 'Name', label: 'Name' }, { key: 'Rasse', label: 'Rasse' }],
+        d.tiereLebend,
+        { extraButtons: (row) => `<button data-id="${row.ID}" class="btn-dash-tier-details text-green-700 hover:underline mr-2">📋 Details &amp; Zucht</button>`
+            + `<button data-id="${row.ID}" class="btn-dash-tier-edit text-blue-600 hover:underline">Bearbeiten</button>` });
+      body.querySelectorAll('.btn-dash-tier-details').forEach(b => b.onclick = () => { detailModal.close(); openTierBuchungenDetail(d.tiereLebend.find(t => t.ID === b.dataset.id)); });
+      body.querySelectorAll('.btn-dash-tier-edit').forEach(b => b.onclick = () => { detailModal.close(); openTierModal(d.tiereLebend.find(t => t.ID === b.dataset.id)); });
+    });
+  } else if (id === 'flaechen') {
+    openDetailModal('Flächen', (body) => {
+      renderTable(body,
+        [{ key: 'Name', label: 'Name' }, { key: 'Nutzungsart', label: 'Nutzung' }, { label: 'Fläche', format: r => `${Number(r.FlaecheHa || 0).toFixed(2)} ha` }],
+        d.flaechenAktiv,
+        { onRowClick: async (row) => { detailModal.close(); await showSection('flaechen'); zoomZuFlaeche(state.flaechen.find(f => f.ID === row.ID) || row); } });
+    });
+  } else if (id === 'arbeiten') {
+    openDetailModal('Anstehende Bearbeitungen', (body) => {
+      renderTable(body, [{ key: 'Name', label: 'Fläche' }, { label: 'Nächster Schritt', format: r => r._naechster }], d.anstehend,
+        { onRowClick: (row) => { detailModal.close(); openArbeitsschrittModal(row); } });
+    });
+  } else if (id === 'wartung') {
+    openDetailModal('Wartung', (body) => {
+      renderTable(body, [{ label: 'Maschine', format: r => r.m.Bezeichnung }, { label: 'Hinweis', format: r => r.hinweise.join(' · ') }], d.alarme,
+        { onRowClick: (row) => { detailModal.close(); openWartungsintervalleDetail(row.m); } });
+    });
+  } else if (id === 'futter') {
+    openDetailModal('Futtermittel', (body) => {
+      renderTable(body, [{ key: 'Bezeichnung', label: 'Bezeichnung' }, { label: 'Bestand', format: r => `${Number(r.BestandAktuell || 0).toFixed(1)} ${r.Einheit}` }], d.futtermittelAktiv,
+        { onRowClick: (row) => { detailModal.close(); openFuttermittelBewegungModal(row); } });
+    });
+  } else if (id === 'keller') {
+    openDetailModal('Keller', (body) => {
+      body.innerHTML = '<div class="font-semibold mb-2">Fässer</div><div id="dashKellerFass"></div><div class="font-semibold mt-4 mb-2">Flaschenlager</div><div id="dashKellerFlaschen"></div>';
+      renderTable(document.getElementById('dashKellerFass'),
+        [{ key: 'Bezeichnung', label: 'Tank' }, { label: 'Inhalt', format: r => `${Number(r.AktuellerInhaltLiter || 0).toFixed(0)} l` }], d.fassMitInhalt,
+        { onRowClick: (row) => { detailModal.close(); openKellerLogbuchDetail(row); } });
+      renderTable(document.getElementById('dashKellerFlaschen'),
+        [{ key: 'Bezeichnung', label: 'Bezeichnung' }, { label: 'Anzahl', format: r => `${r.AnzahlAktuell} Flaschen` }], d.flaschenbestandAktiv,
+        { onRowClick: (row) => { detailModal.close(); openFlaschenAustragModal(row); } });
+    });
+  }
+}
 
 async function loadDashboard() {
   const { s, maschinen, intervalle, futtermittel, tanks, flaschenbestand, flaechen, fruchtfolge, feldarbeiten, tiere } = await cachedBatch({
@@ -501,14 +548,25 @@ async function loadDashboard() {
   const flaschenbestandAktiv = flaschenbestand.filter(f => f.Aktiv !== false && Number(f.AnzahlAktuell || 0) > 0);
   const flaechenAktiv = flaechen.filter(f => f.Aktiv !== false);
   const tiereLebend = tiere.filter(t => t.Status === 'Lebend');
+  const jahr = new Date().getFullYear();
+  const fassMitInhalt = tanks.filter(t => t.Aktiv !== false && Number(t.AktuellerInhaltLiter || 0) > 0);
+  const alarme = state.maschinen.map(m => ({ m, ...computeAmpelStatus(m, intervalle) })).filter(x => x.status !== 'green');
+  const anstehend = flaechenAktiv
+    .filter(f => hatArbeitsablauf(f))
+    .map(f => ({ ...f, _naechster: naechsterArbeitsschritt(f, feldarbeiten, jahr) }))
+    .filter(x => x._naechster);
+
+  // Für die Detail-Fenster (Pfeil-Klick) - dort wird mit den vollen, klickbaren Listen
+  // gearbeitet statt nur mit der kompakten Kachel-Vorschau.
+  state.dashboardData = { tiereLebend, flaechenAktiv, anstehend, alarme, futtermittelAktiv, fassMitInhalt, flaschenbestandAktiv };
 
   const tiles = [];
 
   tiles.push(dashTileHtml({
-    id: 'tiere', icon: '🐄', title: 'Tiere', value: tiereLebend.length, sub: 'Einzeltiere (lebend)',
-    details: tiereLebend.length
-      ? tiereLebend.map(t => drow(`${t.Name || t.Ohrmarke || 'unbenannt'} <span class="text-gray-400">(${t.Tierart})</span>`, t.Rasse || '')).join('')
-      : '<p class="text-gray-400 text-sm py-2">Keine Tiere erfasst.</p>'
+    id: 'tiere', icon: '🐄', title: 'Tiere', value: tiereLebend.length, sub: 'lebend', section: 'vieh', expandable: true,
+    preview: tiereLebend.length
+      ? tiereLebend.map(t => drow(`${t.Name || t.Ohrmarke || 'unbenannt'}`, t.Tierart)).join('')
+      : '<p class="text-gray-400 text-xs py-2">Keine Tiere erfasst.</p>'
   }));
 
   // ---- Flächen nach Nutzung/Kultur ----
@@ -519,43 +577,35 @@ async function loadDashboard() {
   const ackerland = flaechenAktiv.filter(f => f.Nutzungsart === 'Ackerland');
   const wald = flaechenAktiv.filter(f => f.Nutzungsart === 'Wald');
   const almweide = flaechenAktiv.filter(f => f.Nutzungsart === 'Almweide');
-  const jahr = new Date().getFullYear();
   const ackerlandProKultur = {};
   ackerland.forEach(f => {
     const zuweisung = fruchtfolge.find(ff => ff.FlaecheID === f.ID && Number(ff.Jahr) === jahr);
     const kultur = zuweisung ? zuweisung.Kultur : 'ohne Zuweisung';
     ackerlandProKultur[kultur] = (ackerlandProKultur[kultur] || 0) + Number(f.FlaecheHa || 0);
   });
-  const flaechenDetails = [
-    drow('Insgesamt', `${haVon(flaechenAktiv).toFixed(2)} ha`),
+  const flaechenPreview = [
     drow('🌾 Grünland', `${haVon(gruenland).toFixed(2)} ha`),
     drow('🍇 Weinbau', `${haVon(weinbau).toFixed(2)} ha`),
     obstbau.length ? drow('🍎 Obstbau', `${haVon(obstbau).toFixed(2)} ha`) : '',
     drow('🌱 Ackerland', `${haVon(ackerland).toFixed(2)} ha`),
-    ...Object.entries(ackerlandProKultur).map(([kultur, ha]) => `<div class="drow pl-4 text-xs text-gray-500"><span>↳ ${kultur}</span><span>${ha.toFixed(2)} ha</span></div>`),
     drow('🌲 Wald', `${haVon(wald).toFixed(2)} ha`),
     drow('⛰️ Almweide', `${haVon(almweide).toFixed(2)} ha`)
   ].join('');
-  tiles.push(dashTileHtml({ id: 'flaechen', icon: '🗺️', title: 'Flächen', value: `${s.flaecheGesamtHa.toFixed(2)} ha`, sub: `${s.flaechenAnzahl} Parzellen`, details: flaechenDetails }));
+  tiles.push(dashTileHtml({ id: 'flaechen', icon: '🗺️', title: 'Flächen', value: `${s.flaecheGesamtHa.toFixed(2)} ha`, sub: `${s.flaechenAnzahl} Parzellen`, section: 'flaechen', expandable: true, preview: flaechenPreview }));
 
   // ---- Anstehende Bearbeitungen (Arbeitsabläufe je Fläche) ----
-  const anstehend = flaechenAktiv
-    .filter(f => hatArbeitsablauf(f))
-    .map(f => ({ f, naechster: naechsterArbeitsschritt(f, feldarbeiten, jahr) }))
-    .filter(x => x.naechster);
   if (anstehend.length) {
     tiles.push(dashTileHtml({
-      id: 'arbeiten', icon: '🚜', title: 'Anstehende Bearbeitungen', value: anstehend.length, sub: 'Flächen mit offenem Schritt',
-      details: anstehend.map(x => drow(x.f.Name, x.naechster)).join('')
+      id: 'arbeiten', icon: '🚜', title: 'Bearbeitungen', value: anstehend.length, sub: 'offene Schritte', section: 'flaechen', expandable: true,
+      preview: anstehend.map(x => drow(x.Name, x._naechster)).join('')
     }));
   }
 
   // ---- Wartungsalarm ----
-  const alarme = state.maschinen.map(m => ({ m, ...computeAmpelStatus(m, intervalle) })).filter(x => x.status !== 'green');
   if (alarme.length) {
     tiles.push(dashTileHtml({
-      id: 'wartung', icon: '🔧', title: 'Wartung', value: alarme.length, sub: 'fällig / bald fällig', alert: true,
-      details: alarme.map(a => drow(`${a.status === 'red' ? '🔴' : '🟡'} ${a.m.Bezeichnung}`, a.hinweise.join(' · '))).join('')
+      id: 'wartung', icon: '🔧', title: 'Wartung', value: alarme.length, sub: 'fällig/bald fällig', alert: true, section: 'fuhrpark', expandable: true,
+      preview: alarme.map(a => drow(`${a.status === 'red' ? '🔴' : '🟡'} ${a.m.Bezeichnung}`, a.hinweise.join(' · '))).join('')
     }));
   }
 
@@ -563,8 +613,8 @@ async function loadDashboard() {
   if (futtermittelAktiv.length) {
     const knapp = futtermittelAktiv.filter(f => f.MindestBestand && Number(f.BestandAktuell || 0) < Number(f.MindestBestand));
     tiles.push(dashTileHtml({
-      id: 'futter', icon: '🌾', title: 'Futtermittel', value: `${futtermittelAktiv.length} Sorten`, sub: knapp.length ? `${knapp.length} knapp ⚠️` : 'Bestand ok', alert: knapp.length > 0,
-      details: futtermittelAktiv.map(f => {
+      id: 'futter', icon: '🌾', title: 'Futtermittel', value: `${futtermittelAktiv.length} Sorten`, sub: knapp.length ? `${knapp.length} knapp ⚠️` : 'Bestand ok', alert: knapp.length > 0, section: 'futtermittel', expandable: true,
+      preview: futtermittelAktiv.map(f => {
         const istKnapp = f.MindestBestand && Number(f.BestandAktuell || 0) < Number(f.MindestBestand);
         return `<div class="drow${istKnapp ? ' text-red-600 font-semibold' : ''}"><span>${f.Bezeichnung}</span><b>${Number(f.BestandAktuell || 0).toFixed(1)} ${f.Einheit}${istKnapp ? ' ⚠️' : ''}</b></div>`;
       }).join('')
@@ -572,29 +622,28 @@ async function loadDashboard() {
   }
 
   // ---- Keller konkret (Fässer mit Inhalt + Flaschenbestand je Sorte/Jahrgang) ----
-  const fassMitInhalt = tanks.filter(t => t.Aktiv !== false && Number(t.AktuellerInhaltLiter || 0) > 0);
   if (fassMitInhalt.length || flaschenbestandAktiv.length) {
     const literGesamt = fassMitInhalt.reduce((sum, t) => sum + Number(t.AktuellerInhaltLiter || 0), 0);
     const flaschenGesamt = flaschenbestandAktiv.reduce((sum, f) => sum + Number(f.AnzahlAktuell || 0), 0);
-    const kellerDetails = [
-      ...fassMitInhalt.map(t => drow(`🛢️ ${t.Bezeichnung}${t.Sorte ? ` (${t.Sorte}${t.Jahrgang ? ' ' + t.Jahrgang : ''})` : ''}`, `${Number(t.AktuellerInhaltLiter || 0).toFixed(0)} l`)),
-      ...flaschenbestandAktiv.map(f => drow(`🍾 ${f.Bezeichnung}`, `${f.AnzahlAktuell} Flaschen`))
+    const kellerPreview = [
+      ...fassMitInhalt.map(t => drow(`🛢️ ${t.Bezeichnung}`, `${Number(t.AktuellerInhaltLiter || 0).toFixed(0)} l`)),
+      ...flaschenbestandAktiv.map(f => drow(`🍾 ${f.Bezeichnung}`, `${f.AnzahlAktuell}`))
     ].join('');
-    tiles.push(dashTileHtml({ id: 'keller', icon: '🍷', title: 'Keller', value: `${literGesamt.toFixed(0)} l`, sub: `${flaschenGesamt} Flaschen`, details: kellerDetails }));
+    tiles.push(dashTileHtml({ id: 'keller', icon: '🍷', title: 'Keller', value: `${literGesamt.toFixed(0)} l`, sub: `${flaschenGesamt} Flaschen`, section: 'weinbau', expandable: true, preview: kellerPreview }));
   }
 
   // ---- Wetter: Platzhalter, wird gleich unten asynchron befüllt (externe API) ----
   tiles.push(dashTileHtml({
-    id: 'wetter', icon: '🌦️', title: 'Wetter (Grünland)', value: 'Lädt …', sub: '',
-    details: '<p class="text-gray-400 text-sm py-2">Wetterdaten werden geladen …</p>'
+    id: 'wetter', icon: '🌦️', title: 'Wetter', value: 'Lädt …', sub: '', section: 'flaechen',
+    preview: '<p class="text-gray-400 text-xs py-2">Wetterdaten werden geladen …</p>'
   }));
 
   // ---- Gerade aktiv ----
   tiles.push(dashTileHtml({
-    id: 'aktiv', icon: '👥', title: 'Gerade aktiv', value: s.aktiveNutzer.length, sub: s.aktiveNutzer.length ? s.aktiveNutzer.map(u => u.name).join(', ') : 'niemand sonst aktiv',
-    details: s.aktiveNutzer.length
-      ? s.aktiveNutzer.map(u => drow(u.name, `${fmtDate(u.lastSeen)} ${new Date(u.lastSeen).toLocaleTimeString('de-DE')}`)).join('')
-      : '<p class="text-gray-400 text-sm py-2">Aktuell sonst niemand aktiv.</p>'
+    id: 'aktiv', icon: '👥', title: 'Aktiv', value: s.aktiveNutzer.length, sub: s.aktiveNutzer.length ? s.aktiveNutzer.map(u => u.name).join(', ') : 'niemand sonst',
+    preview: s.aktiveNutzer.length
+      ? s.aktiveNutzer.map(u => drow(u.name, new Date(u.lastSeen).toLocaleTimeString('de-DE'))).join('')
+      : '<p class="text-gray-400 text-xs py-2">Aktuell sonst niemand aktiv.</p>'
   }));
 
   document.getElementById('dashboardGrid').innerHTML = tiles.join('');
@@ -2095,6 +2144,7 @@ function openIntervallModal(maschine, initial, reload) {
 // VIEHHALTUNG
 // ============================================================================
 const TIERARTEN = ['Rind', 'Ziege', 'Schaf', 'Huhn', 'Sonstiges'];
+const TIERART_ICONS = { Rind: '🐄', Ziege: '🐐', Schaf: '🐑', Huhn: '🐔', Sonstiges: '🐾' };
 
 async function loadViehSection() {
   const { tiere, tierkosten, tiererloese, zuchtereignisse } = await cachedBatch({
@@ -2109,25 +2159,33 @@ async function loadViehSection() {
   state.zuchtereignisse = zuchtereignisse;
   renderZuchtErinnerungen();
 
-  renderTable(document.getElementById('tiereTable'),
-    [
-      { key: 'Ohrmarke', label: 'Ohrmarke' },
-      { key: 'Tierart', label: 'Tierart' },
-      { key: 'Rasse', label: 'Rasse' },
-      { key: 'Name', label: 'Name' },
-      { label: 'Geburtsdatum', format: r => fmtDate(r.Geburtsdatum) },
-      { key: 'Geschlecht', label: 'Geschlecht' },
-      { key: 'Status', label: 'Status' },
-      { label: 'Zuchtkalender', format: r => zuchtstatusFuerTier(r.ID) },
-      { label: 'Deckungsbeitrag', format: r => euro(deckungsbeitragFuerTier(r.ID)) }
-    ],
-    state.tiere,
-    {
-      onEdit: (row) => openTierModal(row),
-      onDelete: async (row) => { await safeCall('tiere.delete', { id: row.ID }, 'Gelöscht.'); cacheRemove('tiere.list', row.ID); await loadViehSection(); },
-      extraButtons: (row) => `<button data-id="${row.ID}" class="btn-tier-buchungen text-green-700 hover:underline mr-2">📋 Details &amp; Zucht</button>`
-    });
-  document.querySelectorAll('.btn-tier-buchungen').forEach(b => b.onclick = () => openTierBuchungenDetail(state.tiere.find(t => t.ID === b.dataset.id)));
+  const grid = document.getElementById('tiereTable');
+  grid.innerHTML = state.tiere.map(t => `
+    <div class="bg-white rounded-xl shadow p-4 space-y-2">
+      <div class="flex items-center justify-between">
+        <div class="font-semibold">${t.Name || t.Ohrmarke || 'unbenannt'}</div>
+        <span class="text-2xl">${TIERART_ICONS[t.Tierart] || '🐾'}</span>
+      </div>
+      <div class="text-xs text-gray-500">${t.Tierart}${t.Rasse ? ' · ' + t.Rasse : ''}${t.Ohrmarke && t.Name ? ' · ' + t.Ohrmarke : ''}</div>
+      <div class="text-sm text-gray-600">${t.Status}${t.Geschlecht ? ' · ' + t.Geschlecht : ''}</div>
+      <div class="text-xs text-gray-400">${zuchtstatusFuerTier(t.ID)}</div>
+      <div class="text-sm text-gray-600">Deckungsbeitrag: <b>${euro(deckungsbeitragFuerTier(t.ID))}</b></div>
+      <div class="flex gap-2 flex-wrap pt-2 border-t">
+        <button data-id="${t.ID}" class="btn-tier-buchungen text-xs bg-gray-100 hover:bg-gray-200 px-2 py-1 rounded">📋 Details &amp; Zucht</button>
+        <button data-id="${t.ID}" class="btn-tier-edit text-xs bg-gray-100 hover:bg-gray-200 px-2 py-1 rounded">Bearbeiten</button>
+        ${state.user.role === 'Admin' ? `<button data-id="${t.ID}" class="btn-tier-delete text-xs text-red-600 hover:underline ml-auto">Löschen</button>` : ''}
+      </div>
+    </div>`).join('') || '<p class="text-gray-400">Noch keine Tiere erfasst.</p>';
+
+  grid.querySelectorAll('.btn-tier-buchungen').forEach(b => b.onclick = () => openTierBuchungenDetail(state.tiere.find(t => t.ID === b.dataset.id)));
+  grid.querySelectorAll('.btn-tier-edit').forEach(b => b.onclick = () => openTierModal(state.tiere.find(t => t.ID === b.dataset.id)));
+  grid.querySelectorAll('.btn-tier-delete').forEach(b => b.onclick = async () => {
+    if (confirm('Tier wirklich löschen?')) {
+      await safeCall('tiere.delete', { id: b.dataset.id }, 'Gelöscht.');
+      cacheRemove('tiere.list', b.dataset.id);
+      await loadViehSection();
+    }
+  });
 
   document.getElementById('btnNeuesTier').onclick = () => openTierModal();
   document.getElementById('btnExportBestandsregister').onclick = () => exportBestandsregisterCsv();
@@ -2371,6 +2429,8 @@ async function wandereErtragInFuttermittel({ Bezeichnung, Kategorie, Einheit, Me
   toast(`${Menge} ${Einheit || ''} ${Bezeichnung} zu Futtermittel hinzugefügt.`);
 }
 
+const FUTTERMITTEL_ICONS = { Heu: '🌾', Silage: '🌱', Grummet: '🌿', Silomais: '🌽', Kraftfutter: '🥣', Stroh: '🍂', Sonstiges: '📦' };
+
 async function loadFuttermittelSection() {
   const { futtermittel, bewegungen } = await cachedBatch({
     futtermittel: { action: 'futtermittel.list' },
@@ -2383,30 +2443,43 @@ async function loadFuttermittelSection() {
     .filter(b => b.FuttermittelID === futtermittelId && b.Typ === 'Verfüttert' && new Date(b.Datum) >= vor30Tagen)
     .reduce((sum, b) => sum + Number(b.Menge || 0), 0) / 30;
 
-  renderTable(document.getElementById('futtermittelTable'),
-    [
-      { key: 'Bezeichnung', label: 'Bezeichnung' },
-      { key: 'Kategorie', label: 'Kategorie' },
-      { label: 'Bestand', format: r => {
-          const knapp = r.MindestBestand && Number(r.BestandAktuell || 0) < Number(r.MindestBestand);
-          return `<span class="${knapp ? 'text-red-600 font-semibold' : ''}">${Number(r.BestandAktuell || 0).toFixed(1)} ${r.Einheit || ''}${knapp ? ' ⚠️' : ''}</span>`;
-        } },
-      { label: 'Mindestbestand', format: r => r.MindestBestand ? `${r.MindestBestand} ${r.Einheit || ''}` : '-' },
-      { label: 'Ø Verbrauch/Tag (30 Tage)', format: r => { const v = verbrauchProTag(r.ID); return v > 0 ? `${v.toFixed(1)} ${r.Einheit || ''}` : '-'; } }
-    ],
-    state.futtermittel,
-    {
-      onEdit: (row) => openFuttermittelModal(row),
-      onDelete: async (row) => { await safeCall('futtermittel.delete', { id: row.ID }, 'Gelöscht.'); cacheRemove('futtermittel.list', row.ID); await loadFuttermittelSection(); },
-      extraButtons: (row) => `<button data-id="${row.ID}" class="btn-futter-buchen text-green-700 hover:underline mr-2">📉 Verbrauch/Verkauf</button>`
-        + `<button data-id="${row.ID}" class="btn-futter-verlauf text-gray-700 hover:underline mr-2">📜 Verlauf</button>`
-    });
+  const grid = document.getElementById('futtermittelTable');
+  grid.innerHTML = state.futtermittel.map(f => {
+    const knapp = f.MindestBestand && Number(f.BestandAktuell || 0) < Number(f.MindestBestand);
+    const verbrauch = verbrauchProTag(f.ID);
+    return `<div class="bg-white rounded-xl shadow p-4 space-y-2">
+      <div class="flex items-center justify-between">
+        <div class="font-semibold">${f.Bezeichnung}</div>
+        <span class="text-2xl">${FUTTERMITTEL_ICONS[f.Kategorie] || '📦'}</span>
+      </div>
+      <div class="text-xs text-gray-500">${f.Kategorie || ''}</div>
+      <div class="text-sm text-gray-600">Bestand: <b class="${knapp ? 'text-red-600' : ''}">${Number(f.BestandAktuell || 0).toFixed(1)} ${f.Einheit || ''}${knapp ? ' ⚠️' : ''}</b></div>
+      ${f.MindestBestand ? `<div class="text-xs text-gray-400">Mindestbestand: ${f.MindestBestand} ${f.Einheit || ''}</div>` : ''}
+      ${verbrauch > 0 ? `<div class="text-xs text-gray-400">Ø ${verbrauch.toFixed(1)} ${f.Einheit || ''}/Tag (30 Tage)</div>` : ''}
+      <div class="flex gap-2 flex-wrap pt-2 border-t">
+        <button data-id="${f.ID}" class="btn-futter-buchen text-xs bg-gray-100 hover:bg-gray-200 px-2 py-1 rounded">📉 Verbrauch/Verkauf</button>
+        <button data-id="${f.ID}" class="btn-futter-verlauf text-xs bg-gray-100 hover:bg-gray-200 px-2 py-1 rounded">📜 Verlauf</button>
+        <button data-id="${f.ID}" class="btn-futter-edit text-xs bg-gray-100 hover:bg-gray-200 px-2 py-1 rounded">Bearbeiten</button>
+        ${state.user.role === 'Admin' ? `<button data-id="${f.ID}" class="btn-futter-delete text-xs text-red-600 hover:underline ml-auto">Löschen</button>` : ''}
+      </div>
+    </div>`;
+  }).join('') || '<p class="text-gray-400">Noch kein Futtermittel-Bestand.</p>';
 
-  document.querySelectorAll('.btn-futter-buchen').forEach(b => {
+  grid.querySelectorAll('.btn-futter-buchen').forEach(b => {
     b.onclick = () => openFuttermittelBewegungModal(state.futtermittel.find(f => f.ID === b.dataset.id));
   });
-  document.querySelectorAll('.btn-futter-verlauf').forEach(b => {
+  grid.querySelectorAll('.btn-futter-verlauf').forEach(b => {
     b.onclick = () => openFuttermittelVerlauf(state.futtermittel.find(f => f.ID === b.dataset.id));
+  });
+  grid.querySelectorAll('.btn-futter-edit').forEach(b => {
+    b.onclick = () => openFuttermittelModal(state.futtermittel.find(f => f.ID === b.dataset.id));
+  });
+  grid.querySelectorAll('.btn-futter-delete').forEach(b => b.onclick = async () => {
+    if (confirm('Futtermittel wirklich löschen?')) {
+      await safeCall('futtermittel.delete', { id: b.dataset.id }, 'Gelöscht.');
+      cacheRemove('futtermittel.list', b.dataset.id);
+      await loadFuttermittelSection();
+    }
   });
 
   document.getElementById('btnNeuesFuttermittel').onclick = () => openFuttermittelModal();
@@ -2573,20 +2646,23 @@ async function loadWeinbauSection() {
 
   const bewaesserung = await berechneBewaesserungsempfehlung(rebanlagenAnzeige);
 
-  renderTable(document.getElementById('rebanlagenTable'),
-    [
-      { key: 'Name', label: 'Rebanlage' },
-      { label: 'Parzelle', format: r => r._istEigeneFlaeche ? '(eigene Parzelle)' : ((state.flaechen.find(f => f.ID === r.FlaecheID) || {}).Name || '-') },
-      { key: 'Rebsorte', label: 'Rebsorte' },
-      { label: 'Fläche', format: r => `${Number(r.FlaecheM2 || 0).toFixed(0)} m²` },
-      { label: 'Pflanzen', format: r => r.AnzahlPflanzen || '-' },
-      { label: 'Standjahr', format: r => computeStandjahr(r.Pflanzjahr).label },
-      { label: '💧 Bewässerung', format: r => bewaesserung[r.ID] || '-' }
-    ],
-    rebanlagenAnzeige,
-    { extraButtons: (row) => `<button data-id="${row.ID}" class="btn-rebanlage-detail text-green-700 hover:underline mr-2">Pflege/Reife/Ernte</button>` });
+  const rebanlagenGrid = document.getElementById('rebanlagenTable');
+  rebanlagenGrid.innerHTML = rebanlagenAnzeige.map(r => `
+    <div class="bg-white rounded-xl shadow p-4 space-y-2">
+      <div class="flex items-center justify-between">
+        <div class="font-semibold">${r.Name}</div>
+        <span class="text-2xl">🍇</span>
+      </div>
+      <div class="text-xs text-gray-500">${r._istEigeneFlaeche ? '(eigene Parzelle)' : ((state.flaechen.find(f => f.ID === r.FlaecheID) || {}).Name || '-')}</div>
+      <div class="text-sm text-gray-600">${r.Rebsorte || 'Sorte unbekannt'} · ${Number(r.FlaecheM2 || 0).toFixed(0)} m²${r.AnzahlPflanzen ? ` · ${r.AnzahlPflanzen} Pflanzen` : ''}</div>
+      <div class="text-xs text-gray-400">${computeStandjahr(r.Pflanzjahr).label}</div>
+      <div class="text-sm">💧 ${bewaesserung[r.ID] || 'keine Wetterdaten'}</div>
+      <div class="flex gap-2 flex-wrap pt-2 border-t">
+        <button data-id="${r.ID}" class="btn-rebanlage-detail text-xs bg-gray-100 hover:bg-gray-200 px-2 py-1 rounded">Pflege/Reife/Ernte</button>
+      </div>
+    </div>`).join('') || '<p class="text-gray-400">Noch keine Rebanlagen angelegt.</p>';
 
-  document.querySelectorAll('.btn-rebanlage-detail').forEach(b => {
+  rebanlagenGrid.querySelectorAll('.btn-rebanlage-detail').forEach(b => {
     b.onclick = () => openRebanlageDetail(rebanlagenAnzeige.find(s => s.ID === b.dataset.id));
   });
 
@@ -2598,21 +2674,34 @@ async function loadFlaschenlagerTab() {
   const bestand = await cachedList('flaschenbestand.list');
   state.flaschenbestand = bestand.filter(b => b.Aktiv !== false);
 
-  renderTable(document.getElementById('flaschenlagerTable'),
-    [
-      { key: 'Bezeichnung', label: 'Bezeichnung' },
-      { label: 'Flaschengröße', format: r => `${r.FlaschenGroesseMl || ''} ml` },
-      { key: 'AnzahlAktuell', label: 'Flaschen im Lager' }
-    ],
-    state.flaschenbestand,
-    {
-      onEdit: (row) => openFlaschenbestandModal(row),
-      onDelete: async (row) => { await safeCall('flaschenbestand.delete', { id: row.ID }, 'Gelöscht.'); cacheRemove('flaschenbestand.list', row.ID); await loadFlaschenlagerTab(); },
-      extraButtons: (row) => `<button data-id="${row.ID}" class="btn-flasche-austragen text-green-700 hover:underline mr-2">📤 Austragen</button>`
-    });
+  const grid = document.getElementById('flaschenlagerTable');
+  grid.innerHTML = state.flaschenbestand.map(f => `
+    <div class="bg-white rounded-xl shadow overflow-hidden space-y-2">
+      ${f.FotoURL ? `<img src="${f.FotoURL}" class="w-full h-32 object-cover" alt="">` : `<div class="w-full h-16 bg-gray-100 flex items-center justify-center text-3xl">🍾</div>`}
+      <div class="p-4 pt-0 space-y-2">
+        <div class="font-semibold">${f.Bezeichnung}</div>
+        <div class="text-xs text-gray-500">${f.Sorte || ''} ${f.Jahrgang || ''} · ${f.FlaschenGroesseMl || ''} ml</div>
+        <div class="text-sm text-gray-600">Bestand: <b>${f.AnzahlAktuell}</b> Flaschen</div>
+        <div class="flex gap-2 flex-wrap pt-2 border-t">
+          <button data-id="${f.ID}" class="btn-flasche-austragen text-xs bg-gray-100 hover:bg-gray-200 px-2 py-1 rounded">📤 Austragen</button>
+          <button data-id="${f.ID}" class="btn-flasche-edit text-xs bg-gray-100 hover:bg-gray-200 px-2 py-1 rounded">Bearbeiten</button>
+          ${state.user.role === 'Admin' ? `<button data-id="${f.ID}" class="btn-flasche-delete text-xs text-red-600 hover:underline ml-auto">Löschen</button>` : ''}
+        </div>
+      </div>
+    </div>`).join('') || '<p class="text-gray-400">Noch kein Flaschenbestand.</p>';
 
-  document.querySelectorAll('.btn-flasche-austragen').forEach(b => {
+  grid.querySelectorAll('.btn-flasche-austragen').forEach(b => {
     b.onclick = () => openFlaschenAustragModal(state.flaschenbestand.find(f => f.ID === b.dataset.id));
+  });
+  grid.querySelectorAll('.btn-flasche-edit').forEach(b => {
+    b.onclick = () => openFlaschenbestandModal(state.flaschenbestand.find(f => f.ID === b.dataset.id));
+  });
+  grid.querySelectorAll('.btn-flasche-delete').forEach(b => b.onclick = async () => {
+    if (confirm('Flaschenbestand wirklich löschen?')) {
+      await safeCall('flaschenbestand.delete', { id: b.dataset.id }, 'Gelöscht.');
+      cacheRemove('flaschenbestand.list', b.dataset.id);
+      await loadFlaschenlagerTab();
+    }
   });
 
   const btnNeu = document.getElementById('btnNeuesFlaschenbestand');
@@ -2628,13 +2717,21 @@ function openFlaschenbestandModal(initial = {}) {
       { key: 'Jahrgang', label: 'Jahrgang', type: 'number' },
       { key: 'FlaschenGroesseMl', label: 'Flaschengröße (ml)', type: 'number', required: true },
       { key: 'AnzahlAktuell', label: 'Anzahl Flaschen', type: 'number', required: true },
+      { key: 'Foto', label: 'Etikett-Foto (ersetzt vorhandenes Foto)', type: 'file', accept: 'image/*' },
       { key: 'Notiz', label: 'Notiz', type: 'textarea' }
     ],
     initial: initial.ID ? initial : { FlaschenGroesseMl: 750, AnzahlAktuell: 0 },
     onSubmit: async (values) => {
+      const payload = { ...values };
+      delete payload.Foto;
+      if (values.Foto) {
+        const up = await Api.uploadFile(values.Foto, 'flasche');
+        payload.FotoDriveFileID = up.fileId;
+        payload.FotoURL = `https://lh3.googleusercontent.com/d/${up.fileId}=w1000`;
+      }
       const saved = initial.ID
-        ? await safeCall('flaschenbestand.update', { id: initial.ID, ...values }, 'Aktualisiert.')
-        : await safeCall('flaschenbestand.create', values, 'Flaschenbestand angelegt.');
+        ? await safeCall('flaschenbestand.update', { id: initial.ID, ...payload }, 'Aktualisiert.')
+        : await safeCall('flaschenbestand.create', payload, 'Flaschenbestand angelegt.');
       cacheUpsert('flaschenbestand.list', saved);
       await loadFlaschenlagerTab();
     }

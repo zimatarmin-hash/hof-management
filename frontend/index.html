@@ -52,46 +52,46 @@
     #mainNav.nav-open { display: flex !important; flex-direction: column; }
   }
 
-  /* ---- Dashboard: touchfähige, aufklappbare Kacheln ---- */
+  /* ---- Dashboard: feste, möglichst quadratische Kacheln ---- */
   /* Mobil: zwei Kacheln nebeneinander statt einer langen Liste - mehr auf einen Blick. */
-  #dashboardGrid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0.75rem; align-items: start; }
-  .dash-tile { background: white; border-radius: 1rem; box-shadow: 0 1px 3px rgba(0,0,0,0.08); overflow: hidden; }
-  .dash-tile-head { display: flex; align-items: center; gap: 0.75rem; padding: 1rem; -webkit-tap-highlight-color: transparent; }
-  .dash-tile:not(.dash-tile-static) .dash-tile-head { cursor: pointer; }
-  .dash-tile:not(.dash-tile-static) .dash-tile-head:hover { background: #f9fafb; }
-  .dash-tile-icon { font-size: 1.75rem; line-height: 1; flex-shrink: 0; }
-  .dash-tile-summary { min-width: 0; flex: 1; }
-  .dash-tile-title { font-size: 0.75rem; color: #6b7280; }
-  .dash-tile-value { font-size: 1.25rem; font-weight: 700; color: #1f2937; line-height: 1.3; }
-  .dash-tile-sub { font-size: 0.7rem; color: #9ca3af; }
-  .dash-tile-chevron { color: #9ca3af; transition: transform .2s; font-size: 1.1rem; flex-shrink: 0; }
-  .dash-tile.expanded .dash-tile-chevron { transform: rotate(90deg); }
-  .dash-tile-details-wrap { display: grid; grid-template-rows: 0fr; transition: grid-template-rows .25s ease; }
-  .dash-tile.expanded .dash-tile-details-wrap { grid-template-rows: 1fr; }
-  .dash-tile-details { overflow: hidden; padding: 0 1rem; }
-  .dash-tile.expanded .dash-tile-details { padding-bottom: 1rem; }
-  .dash-tile-details .drow { display: flex; justify-content: space-between; gap: 0.5rem; padding: 0.15rem 0; }
-  .dash-tile-alert .dash-tile-head { background: #fef2f2; }
-  .dash-tile-alert .dash-tile-value { color: #b91c1c; }
-  .dash-day-strip { display: flex; gap: 0.4rem; overflow-x: auto; padding: 0.25rem 0; }
-  .dash-day { flex: 0 0 auto; min-width: 3.4rem; text-align: center; font-size: 0.7rem; color: #6b7280; }
-  .dash-day .dash-day-icon { font-size: 1.4rem; }
-  .dash-day .dash-day-temp { font-size: 0.75rem; color: #1f2937; font-weight: 600; }
+  #dashboardGrid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0.75rem; }
+  .dash-tile {
+    position: relative; background: white; border-radius: 1rem; box-shadow: 0 1px 3px rgba(0,0,0,0.08);
+    aspect-ratio: 1 / 1; display: flex; flex-direction: column; padding: 0.85rem;
+    cursor: pointer; -webkit-tap-highlight-color: transparent;
+  }
+  .dash-tile:hover { box-shadow: 0 3px 10px rgba(0,0,0,0.12); }
+  .dash-tile-arrow {
+    position: absolute; top: 0.55rem; right: 0.55rem; width: 1.6rem; height: 1.6rem; border-radius: 50%;
+    background: #f3f4f6; color: #4b5563; display: flex; align-items: center; justify-content: center;
+    font-size: 0.95rem; z-index: 2; border: none;
+  }
+  .dash-tile-arrow:hover { background: #e5e7eb; }
+  .dash-tile-icon { font-size: 1.5rem; line-height: 1; }
+  .dash-tile-title { font-size: 0.7rem; color: #6b7280; margin-top: 0.3rem; }
+  .dash-tile-value { font-size: 1.05rem; font-weight: 700; color: #1f2937; line-height: 1.25; }
+  .dash-tile-sub { font-size: 0.65rem; color: #9ca3af; margin-bottom: 0.15rem; }
+  .dash-tile-preview { flex: 1; min-height: 0; overflow-y: auto; font-size: 0.68rem; margin-top: 0.2rem; }
+  .dash-tile-preview .drow { display: flex; justify-content: space-between; gap: 0.35rem; padding: 0.08rem 0; }
+  .dash-tile-alert .dash-tile-value, .dash-tile-alert .dash-tile-icon { color: #b91c1c; }
+  .dash-day-strip { display: flex; gap: 0.3rem; overflow-x: auto; padding: 0.15rem 0; }
+  .dash-day { flex: 0 0 auto; min-width: 2.6rem; text-align: center; font-size: 0.62rem; color: #6b7280; }
+  .dash-day .dash-day-icon { font-size: 1.1rem; }
+  .dash-day .dash-day-temp { font-size: 0.65rem; color: #1f2937; font-weight: 600; }
 
-  /* Ab Tablet/Desktop: mehr Spalten, größere Kacheln, Details gleich sichtbar statt
-     eingeklappt - am Bildschirm ist genug Platz, um möglichst viel auf einen Blick zu zeigen. */
+  /* Ab Tablet/Desktop: mehr Spalten und größere (weiterhin quadratische) Kacheln -
+     der Bildschirm wird ausgenutzt, um möglichst viel auf einen Blick zu zeigen. */
   @media (min-width: 640px) {
-    #dashboardGrid { grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 1rem; }
+    #dashboardGrid { grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 1rem; }
   }
   @media (min-width: 1024px) {
-    #dashboardGrid { grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 1.25rem; }
-    .dash-tile-head { padding: 1.25rem; gap: 1rem; }
-    .dash-tile-icon { font-size: 2.25rem; }
-    .dash-tile-value { font-size: 1.5rem; }
+    #dashboardGrid { grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 1.25rem; }
+    .dash-tile { padding: 1.25rem; }
+    .dash-tile-icon { font-size: 2.1rem; }
+    .dash-tile-value { font-size: 1.4rem; }
     .dash-tile-title { font-size: 0.8rem; }
-    .dash-tile-details-wrap { grid-template-rows: 1fr; }
-    .dash-tile-details { padding-bottom: 1.25rem; }
-    .dash-tile:not(.dash-tile-static) .dash-tile-chevron { opacity: 0.35; }
+    .dash-tile-sub { font-size: 0.75rem; }
+    .dash-tile-preview { font-size: 0.8rem; margin-top: 0.5rem; }
   }
 </style>
 </head>
@@ -250,7 +250,7 @@
           <button data-wtab="flaschenlager" class="wtab-btn px-4 py-2 font-medium border-b-2 border-transparent text-gray-500">Flaschenlager</button>
         </div>
         <div id="wtab-rebanlagen" class="wtab-panel">
-          <div id="rebanlagenTable" class="overflow-x-auto bg-white rounded-xl shadow p-4"></div>
+          <div id="rebanlagenTable" class="grid gap-4 md:grid-cols-2 xl:grid-cols-3"></div>
         </div>
         <div id="wtab-keller" class="wtab-panel hidden space-y-4">
           <div class="flex justify-end">
@@ -262,7 +262,7 @@
           <div class="flex justify-end">
             <button id="btnNeuesFlaschenbestand" class="bg-green-700 text-white px-3 py-2 rounded shadow hover:bg-green-800 text-sm">+ Bestand manuell anlegen</button>
           </div>
-          <div id="flaschenlagerTable" class="overflow-x-auto bg-white rounded-xl shadow p-4"></div>
+          <div id="flaschenlagerTable" class="grid gap-4 md:grid-cols-2 xl:grid-cols-3"></div>
         </div>
       </section>
 
@@ -276,7 +276,7 @@
           </div>
         </div>
         <div id="zuchtErinnerungen" class="hidden bg-amber-50 border border-amber-300 text-amber-800 rounded-xl p-4 text-sm"></div>
-        <div id="tiereTable" class="overflow-x-auto bg-white rounded-xl shadow p-4"></div>
+        <div id="tiereTable" class="grid gap-4 md:grid-cols-2 xl:grid-cols-3"></div>
       </section>
 
       <!-- FUTTERMITTEL -->
@@ -286,9 +286,7 @@
           <button id="btnNeuesFuttermittel" class="bg-green-700 text-white px-3 py-2 rounded shadow hover:bg-green-800 text-sm">+ Bestand anlegen</button>
         </div>
         <p class="text-sm text-gray-500">Erträge aus Schnitten (Feldbuch) und Ernten (Fruchtfolge) landen hier automatisch. Zukauf/sonstige Futtermittel (Kraftfutter, Stroh, ...) können hier auch manuell angelegt werden.</p>
-        <div class="bg-white rounded-xl shadow p-4">
-          <div id="futtermittelTable" class="overflow-x-auto"></div>
-        </div>
+        <div id="futtermittelTable" class="grid gap-4 md:grid-cols-2 xl:grid-cols-3"></div>
       </section>
 
       <!-- FINANZEN -->
