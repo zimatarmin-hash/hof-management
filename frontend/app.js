@@ -554,6 +554,18 @@ function lucideIcon(name, klasse = 'w-6 h-6') {
   return `<i data-lucide="${name}" class="${klasse}"></i>`;
 }
 
+// Eigenes Kuh-Kopf-Icon (Lucide hat keins) im selben Strich-Stil wie die Lucide-Icons,
+// damit es sich optisch nahtlos einfügt.
+function kuhKopfIcon(klasse = 'w-6 h-6') {
+  return `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="${klasse}">
+    <path d="M3 7c-1-1.5-1-3 0-4" /><path d="M21 7c1-1.5 1-3 0-4" /><path d="M9 4.5c-.3-1 0-2 .8-2.6" /><path d="M15 4.5c.3-1 0-2-.8-2.6" />
+    <path d="M4 8c0-3 3-5 8-5s8 2 8 5c0 2-.7 3.6-1.8 4.8-.6.7-1 1.6-1.2 2.5-.4 2-2.2 3.7-5 3.7s-4.6-1.7-5-3.7c-.2-.9-.6-1.8-1.2-2.5C4.7 11.6 4 10 4 8Z" />
+    <circle cx="9" cy="9" r="1" fill="currentColor" stroke="none" /><circle cx="15" cy="9" r="1" fill="currentColor" stroke="none" />
+    <rect x="7.5" y="13" width="9" height="6" rx="3" />
+    <circle cx="10" cy="16" r="0.8" fill="currentColor" stroke="none" /><circle cx="14" cy="16" r="0.8" fill="currentColor" stroke="none" />
+  </svg>`;
+}
+
 // Eine Dashboard-Kachel als HTML-String: feste/quadratische Größe, Kopf (Icon/Titel/
 // Wert) + darunter eine scrollende Kurz-Vorschau (wächst nie über die Kachel hinaus -
 // bei mehr Zeilen wird innerhalb der Kachel gescrollt). Der Pfeil oben rechts (nur wenn
@@ -773,7 +785,7 @@ async function loadDashboard() {
   }));
 
   tiles.push(dashTileHtml({
-    id: 'tiere', icon: lucideIcon('paw-print'), title: 'Tiere', value: tiereLebend.length, sub: 'lebend', section: 'vieh', expandable: true,
+    id: 'tiere', icon: kuhKopfIcon(), title: 'Tiere', value: tiereLebend.length, sub: 'lebend', section: 'vieh', expandable: true,
     preview: tiereLebend.length
       ? tiereLebend.map(t => drow(`${t.Name || t.Ohrmarke || 'unbenannt'}`, t.Tierart)).join('')
       : '<p class="text-gray-400 text-xs py-2">Keine Tiere erfasst.</p>'

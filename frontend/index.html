@@ -149,7 +149,16 @@
       <button data-section="dashboard" class="nav-btn flex items-center gap-3 text-left px-3 py-2 rounded hover:bg-green-100"><i data-lucide="layout-dashboard" class="w-[18px] h-[18px] shrink-0"></i> Dashboard</button>
       <button data-section="flaechen" class="nav-btn flex items-center gap-3 text-left px-3 py-2 rounded hover:bg-green-100"><i data-lucide="map" class="w-[18px] h-[18px] shrink-0"></i> Flächen</button>
       <button data-section="fuhrpark" class="nav-btn flex items-center gap-3 text-left px-3 py-2 rounded hover:bg-green-100"><i data-lucide="tractor" class="w-[18px] h-[18px] shrink-0"></i> Fuhrpark</button>
-      <button data-section="vieh" class="nav-btn flex items-center gap-3 text-left px-3 py-2 rounded hover:bg-green-100"><i data-lucide="paw-print" class="w-[18px] h-[18px] shrink-0"></i> Viehhaltung</button>
+      <button data-section="vieh" class="nav-btn flex items-center gap-3 text-left px-3 py-2 rounded hover:bg-green-100">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="w-[18px] h-[18px] shrink-0">
+          <path d="M3 7c-1-1.5-1-3 0-4" /><path d="M21 7c1-1.5 1-3 0-4" /><path d="M9 4.5c-.3-1 0-2 .8-2.6" /><path d="M15 4.5c.3-1 0-2-.8-2.6" />
+          <path d="M4 8c0-3 3-5 8-5s8 2 8 5c0 2-.7 3.6-1.8 4.8-.6.7-1 1.6-1.2 2.5-.4 2-2.2 3.7-5 3.7s-4.6-1.7-5-3.7c-.2-.9-.6-1.8-1.2-2.5C4.7 11.6 4 10 4 8Z" />
+          <circle cx="9" cy="9" r="1" fill="currentColor" stroke="none" /><circle cx="15" cy="9" r="1" fill="currentColor" stroke="none" />
+          <rect x="7.5" y="13" width="9" height="6" rx="3" />
+          <circle cx="10" cy="16" r="0.8" fill="currentColor" stroke="none" /><circle cx="14" cy="16" r="0.8" fill="currentColor" stroke="none" />
+        </svg>
+        Viehhaltung
+      </button>
       <button data-section="futtermittel" class="nav-btn flex items-center gap-3 text-left px-3 py-2 rounded hover:bg-green-100"><i data-lucide="wheat" class="w-[18px] h-[18px] shrink-0"></i> Futtermittel</button>
       <button data-section="weinbau" class="nav-btn flex items-center gap-3 text-left px-3 py-2 rounded hover:bg-green-100"><i data-lucide="grape" class="w-[18px] h-[18px] shrink-0"></i> Weinbau &amp; Keller</button>
       <button data-section="finanzen" class="nav-btn flex items-center gap-3 text-left px-3 py-2 rounded hover:bg-green-100"><i data-lucide="wallet" class="w-[18px] h-[18px] shrink-0"></i> Finanzen</button>
@@ -270,7 +279,16 @@
       <!-- VIEHHALTUNG -->
       <section id="section-vieh" class="app-section hidden space-y-4">
         <div class="flex items-center justify-between flex-wrap gap-2">
-          <h2 class="text-2xl font-extrabold text-gray-800 tracking-tight flex items-center gap-2"><i data-lucide="paw-print" class="w-6 h-6 text-green-700"></i> Viehhaltung</h2>
+          <h2 class="text-2xl font-extrabold text-gray-800 tracking-tight flex items-center gap-2">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="w-6 h-6 text-green-700">
+            <path d="M3 7c-1-1.5-1-3 0-4" /><path d="M21 7c1-1.5 1-3 0-4" /><path d="M9 4.5c-.3-1 0-2 .8-2.6" /><path d="M15 4.5c.3-1 0-2-.8-2.6" />
+            <path d="M4 8c0-3 3-5 8-5s8 2 8 5c0 2-.7 3.6-1.8 4.8-.6.7-1 1.6-1.2 2.5-.4 2-2.2 3.7-5 3.7s-4.6-1.7-5-3.7c-.2-.9-.6-1.8-1.2-2.5C4.7 11.6 4 10 4 8Z" />
+            <circle cx="9" cy="9" r="1" fill="currentColor" stroke="none" /><circle cx="15" cy="9" r="1" fill="currentColor" stroke="none" />
+            <rect x="7.5" y="13" width="9" height="6" rx="3" />
+            <circle cx="10" cy="16" r="0.8" fill="currentColor" stroke="none" /><circle cx="14" cy="16" r="0.8" fill="currentColor" stroke="none" />
+          </svg>
+          Viehhaltung
+        </h2>
           <div class="flex gap-2">
             <button id="btnNeuesTier" class="bg-green-700 text-white px-3 py-2 rounded shadow hover:bg-green-800 text-sm">+ Einzeltier</button>
             <button id="btnExportBestandsregister" class="bg-gray-700 text-white px-3 py-2 rounded shadow hover:bg-gray-800 text-sm">⬇️ Bestandsregister (CSV)</button>
