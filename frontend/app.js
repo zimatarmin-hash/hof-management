@@ -457,6 +457,12 @@ function waitForGoogleIdentity(callback, attempts = 0) {
 }
 
 window.addEventListener('DOMContentLoaded', () => {
+  // Wandelt alle statisch im HTML vorhandenen <i data-lucide="..."> Platzhalter (Login-
+  // Bildschirm, Kopfzeile, Navigation, Abschnitts-Überschriften) in echte SVG-Icons um.
+  // Dynamisch nachgeladene Inhalte (z.B. Dashboard-Kacheln) rufen das nach dem eigenen
+  // Rendern jeweils selbst nochmal auf.
+  lucide.createIcons();
+
   waitForGoogleIdentity(() => Auth.init(onSignedIn, onSignedOut));
 
   document.getElementById('signOutBtn').onclick = () => Auth.signOut();
@@ -540,6 +546,13 @@ async function refreshActiveUsersLabel() {
 // ============================================================================
 const TODO_PRIORITAET_ORDER = { Hoch: 0, Mittel: 1, Niedrig: 2 };
 const TODO_PRIORITAET_ICONS = { Hoch: '🔴', Mittel: '🟡', Niedrig: '🟢' };
+
+// Modernes SVG-Icon (Lucide) statt Emoji - siehe lucide.createIcons()-Aufrufe nach jedem
+// Neu-Rendern von Inhalten, die dieses Markup enthalten (Platzhalter <i> wird erst dadurch
+// zum tatsächlichen <svg>).
+function lucideIcon(name, klasse = 'w-6 h-6') {
+  return `<i data-lucide="${name}" class="${klasse}"></i>`;
+}
 
 // Eine Dashboard-Kachel als HTML-String: feste/quadratische Größe, Kopf (Icon/Titel/
 // Wert) + darunter eine scrollende Kurz-Vorschau (wächst nie über die Kachel hinaus -
@@ -753,14 +766,14 @@ async function loadDashboard() {
 
   const todosOffen = todos.filter(t => !t.Erledigt).sort((a, b) => (TODO_PRIORITAET_ORDER[a.Prioritaet] ?? 1) - (TODO_PRIORITAET_ORDER[b.Prioritaet] ?? 1));
   tiles.push(dashTileHtml({
-    id: 'todos', icon: '✅', title: 'To-Do', value: todosOffen.length, sub: `${todos.length - todosOffen.length} erledigt`, expandable: true,
+    id: 'todos', icon: lucideIcon('list-checks'), title: 'To-Do', value: todosOffen.length, sub: `${todos.length - todosOffen.length} erledigt`, expandable: true,
     preview: todosOffen.length
       ? todosOffen.slice(0, 8).map(t => drow(`${TODO_PRIORITAET_ICONS[t.Prioritaet] || '🟡'} ${t.Text}`, '')).join('')
       : '<p class="text-gray-400 text-xs py-2">Keine offenen Aufgaben.</p>'
   }));
 
   tiles.push(dashTileHtml({
-    id: 'tiere', icon: '🐄', title: 'Tiere', value: tiereLebend.length, sub: 'lebend', section: 'vieh', expandable: true,
+    id: 'tiere', icon: lucideIcon('paw-print'), title: 'Tiere', value: tiereLebend.length, sub: 'lebend', section: 'vieh', expandable: true,
     preview: tiereLebend.length
       ? tiereLebend.map(t => drow(`${t.Name || t.Ohrmarke || 'unbenannt'}`, t.Tierart)).join('')
       : '<p class="text-gray-400 text-xs py-2">Keine Tiere erfasst.</p>'
@@ -790,12 +803,12 @@ async function loadDashboard() {
   ].join('');
   // Kopfwert bewusst aus der (bereits aktuellen) Flächen-Liste berechnet statt aus s.* -
   // so ist er nach einer Änderung sofort korrekt, ohne auf den serverseitigen Summary-Cache warten zu müssen.
-  tiles.push(dashTileHtml({ id: 'flaechen', icon: '🗺️', title: 'Flächen', value: `${haVon(flaechenAktiv).toFixed(2)} ha`, sub: `${flaechenAktiv.length} Parzellen`, section: 'flaechen', expandable: true, preview: flaechenPreview }));
+  tiles.push(dashTileHtml({ id: 'flaechen', icon: lucideIcon('map'), title: 'Flächen', value: `${haVon(flaechenAktiv).toFixed(2)} ha`, sub: `${flaechenAktiv.length} Parzellen`, section: 'flaechen', expandable: true, preview: flaechenPreview }));
 
   // ---- Anstehende Bearbeitungen (Arbeitsabläufe je Fläche) ----
   if (anstehend.length) {
     tiles.push(dashTileHtml({
-      id: 'arbeiten', icon: '🚜', title: 'Bearbeitungen', value: anstehend.length, sub: 'offene Schritte', section: 'flaechen', expandable: true,
+      id: 'arbeiten', icon: lucideIcon('clipboard-list'), title: 'Bearbeitungen', value: anstehend.length, sub: 'offene Schritte', section: 'flaechen', expandable: true,
       preview: anstehend.map(x => drow(x.Name, x._naechster)).join('')
     }));
   }
@@ -803,7 +816,7 @@ async function loadDashboard() {
   // ---- Wartungsalarm ----
   if (alarme.length) {
     tiles.push(dashTileHtml({
-      id: 'wartung', icon: '🔧', title: 'Wartung', value: alarme.length, sub: 'fällig/bald fällig', alert: true, section: 'fuhrpark', expandable: true,
+      id: 'wartung', icon: lucideIcon('wrench'), title: 'Wartung', value: alarme.length, sub: 'fällig/bald fällig', alert: true, section: 'fuhrpark', expandable: true,
       preview: alarme.map(a => drow(`${a.status === 'red' ? '🔴' : '🟡'} ${a.m.Bezeichnung}`, a.hinweise.join(' · '))).join('')
     }));
   }
@@ -812,7 +825,7 @@ async function loadDashboard() {
   if (futtermittelAktiv.length) {
     const knapp = futtermittelAktiv.filter(f => f.MindestBestand && Number(f.BestandAktuell || 0) < Number(f.MindestBestand));
     tiles.push(dashTileHtml({
-      id: 'futter', icon: '🌾', title: 'Futtermittel', value: `${futtermittelAktiv.length} Sorten`, sub: knapp.length ? `${knapp.length} knapp ⚠️` : 'Bestand ok', alert: knapp.length > 0, section: 'futtermittel', expandable: true,
+      id: 'futter', icon: lucideIcon('wheat'), title: 'Futtermittel', value: `${futtermittelAktiv.length} Sorten`, sub: knapp.length ? `${knapp.length} knapp ⚠️` : 'Bestand ok', alert: knapp.length > 0, section: 'futtermittel', expandable: true,
       preview: futtermittelAktiv.map(f => {
         const istKnapp = f.MindestBestand && Number(f.BestandAktuell || 0) < Number(f.MindestBestand);
         return `<div class="drow${istKnapp ? ' text-red-600 font-semibold' : ''}"><span>${f.Bezeichnung}</span><b>${Number(f.BestandAktuell || 0).toFixed(1)} ${f.Einheit}${istKnapp ? ' ⚠️' : ''}</b></div>`;
@@ -828,24 +841,25 @@ async function loadDashboard() {
       ...fassMitInhalt.map(t => drow(`🛢️ ${t.Bezeichnung}`, `${Number(t.AktuellerInhaltLiter || 0).toFixed(0)} l`)),
       ...flaschenbestandAktiv.map(f => drow(`🍾 ${f.Bezeichnung}`, `${f.AnzahlAktuell}`))
     ].join('');
-    tiles.push(dashTileHtml({ id: 'keller', icon: '🍷', title: 'Keller', value: `${literGesamt.toFixed(0)} l`, sub: `${flaschenGesamt} Flaschen`, section: 'weinbau', expandable: true, preview: kellerPreview }));
+    tiles.push(dashTileHtml({ id: 'keller', icon: lucideIcon('grape'), title: 'Keller', value: `${literGesamt.toFixed(0)} l`, sub: `${flaschenGesamt} Flaschen`, section: 'weinbau', expandable: true, preview: kellerPreview }));
   }
 
   // ---- Wetter: Platzhalter, wird gleich unten asynchron befüllt (externe API) ----
   tiles.push(dashTileHtml({
-    id: 'wetter', icon: '🌦️', title: 'Wetter', value: 'Lädt …', sub: '', section: 'flaechen',
+    id: 'wetter', icon: lucideIcon('cloud-sun'), title: 'Wetter', value: 'Lädt …', sub: '', section: 'flaechen',
     preview: '<p class="text-gray-400 text-xs py-2">Wetterdaten werden geladen …</p>'
   }));
 
   // ---- Gerade aktiv ----
   tiles.push(dashTileHtml({
-    id: 'aktiv', icon: '👥', title: 'Aktiv', value: s.aktiveNutzer.length, sub: s.aktiveNutzer.length ? s.aktiveNutzer.map(u => u.name).join(', ') : 'niemand sonst',
+    id: 'aktiv', icon: lucideIcon('users'), title: 'Aktiv', value: s.aktiveNutzer.length, sub: s.aktiveNutzer.length ? s.aktiveNutzer.map(u => u.name).join(', ') : 'niemand sonst',
     preview: s.aktiveNutzer.length
       ? s.aktiveNutzer.map(u => drow(u.name, new Date(u.lastSeen).toLocaleTimeString('de-DE'))).join('')
       : '<p class="text-gray-400 text-xs py-2">Aktuell sonst niemand aktiv.</p>'
   }));
 
   document.getElementById('dashboardGrid').innerHTML = tiles.join('');
+  lucide.createIcons();
 
   loadWetterBox();
 }

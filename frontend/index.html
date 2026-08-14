@@ -20,6 +20,7 @@
 <link rel="stylesheet" href="https://unpkg.com/leaflet-draw@1.0.4/dist/leaflet.draw.css" />
 <script src="https://accounts.google.com/gsi/client" async defer></script>
 <script src="https://unpkg.com/@turf/turf@6/turf.min.js"></script>
+<script src="https://unpkg.com/lucide@latest/dist/umd/lucide.js"></script>
 
 <style>
   body { font-family: 'Inter', ui-sans-serif, system-ui, sans-serif; }
@@ -100,7 +101,7 @@
 <!-- ===================== LOGIN-BILDSCHIRM ===================== -->
 <div id="loginScreen" class="min-h-screen flex flex-col items-center justify-center gap-6 p-6 bg-gradient-to-br from-green-50 via-white to-emerald-50">
   <div class="text-center space-y-3">
-    <div class="w-16 h-16 mx-auto rounded-2xl bg-gradient-to-br from-green-700 to-emerald-500 shadow-lg flex items-center justify-center text-3xl">🚜</div>
+    <div class="w-16 h-16 mx-auto rounded-2xl bg-gradient-to-br from-green-700 to-emerald-500 shadow-lg flex items-center justify-center text-white"><i data-lucide="tractor" class="w-8 h-8"></i></div>
     <h1 class="text-3xl font-extrabold text-gray-800 tracking-tight">Hof-Management</h1>
     <p class="text-gray-500">Bitte melde dich mit deinem freigeschalteten Google-Konto an.</p>
   </div>
@@ -110,7 +111,7 @@
 
 <!-- ===================== LADE-OVERLAY ===================== -->
 <div id="loadingOverlay" class="hidden fixed inset-0 bg-white/95 backdrop-blur-sm z-[100] flex flex-col items-center justify-center gap-4">
-  <div class="w-14 h-14 rounded-2xl bg-gradient-to-br from-green-700 to-emerald-500 shadow-lg flex items-center justify-center text-2xl">🚜</div>
+  <div class="w-14 h-14 rounded-2xl bg-gradient-to-br from-green-700 to-emerald-500 shadow-lg flex items-center justify-center text-white"><i data-lucide="tractor" class="w-7 h-7"></i></div>
   <div class="text-gray-600 font-medium text-sm" id="loadingOverlayText">Daten werden geladen …</div>
   <div class="w-64 h-1.5 bg-gray-200 rounded-full overflow-hidden">
     <div class="loadingbar-inner h-full w-full bg-green-600 rounded-full"></div>
@@ -123,14 +124,14 @@
   <!-- Topbar -->
   <header class="bg-gradient-to-r from-green-800 to-green-700 text-white px-4 py-3 flex items-center justify-between shadow-md">
     <div class="flex items-center gap-3">
-      <button id="btnMenuToggle" class="md:hidden text-xl leading-none px-1" aria-label="Menü öffnen">☰</button>
-      <div class="w-9 h-9 rounded-xl bg-white/15 flex items-center justify-center text-lg shrink-0">🚜</div>
+      <button id="btnMenuToggle" class="md:hidden leading-none px-1" aria-label="Menü öffnen"><i data-lucide="menu" class="w-6 h-6"></i></button>
+      <div class="w-9 h-9 rounded-xl bg-white/15 flex items-center justify-center shrink-0"><i data-lucide="tractor" class="w-5 h-5"></i></div>
       <span class="text-lg font-bold tracking-tight" id="hofNameLabel">Hof-Management</span>
     </div>
     <div class="flex items-center gap-3 text-sm">
       <div id="activeUsersLabel" class="hidden sm:block opacity-90"></div>
       <button id="btnAktualisieren" title="Alle Daten neu laden" class="flex items-center gap-1.5 bg-white/10 hover:bg-white/20 px-3 py-1.5 rounded-lg transition-colors">
-        <span class="btn-refresh">🔄</span> <span class="hidden sm:inline">Aktualisieren</span>
+        <i data-lucide="refresh-cw" class="btn-refresh w-4 h-4"></i> <span class="hidden sm:inline">Aktualisieren</span>
       </button>
       <div class="flex items-center gap-2 pl-1">
         <img id="userAvatar" class="w-7 h-7 rounded-full ring-2 ring-white/30" src="" alt="">
@@ -145,15 +146,15 @@
 
     <!-- Navigation -->
     <nav id="mainNav" class="hidden md:flex w-64 md:w-56 bg-white border-r p-3 flex-col gap-1 shrink-0 fixed md:static top-[57px] h-[calc(100dvh-57px)] md:h-auto left-0 z-[9999] overflow-y-auto shadow-2xl md:shadow-none">
-      <button data-section="dashboard" class="nav-btn text-left px-3 py-2 rounded hover:bg-green-100">📊 Dashboard</button>
-      <button data-section="flaechen" class="nav-btn text-left px-3 py-2 rounded hover:bg-green-100">🗺️ Flächen</button>
-      <button data-section="fuhrpark" class="nav-btn text-left px-3 py-2 rounded hover:bg-green-100">🚜 Fuhrpark</button>
-      <button data-section="vieh" class="nav-btn text-left px-3 py-2 rounded hover:bg-green-100">🐄 Viehhaltung</button>
-      <button data-section="futtermittel" class="nav-btn text-left px-3 py-2 rounded hover:bg-green-100">🌾 Futtermittel</button>
-      <button data-section="weinbau" class="nav-btn text-left px-3 py-2 rounded hover:bg-green-100">🍇 Weinbau &amp; Keller</button>
-      <button data-section="finanzen" class="nav-btn text-left px-3 py-2 rounded hover:bg-green-100">💶 Finanzen</button>
+      <button data-section="dashboard" class="nav-btn flex items-center gap-3 text-left px-3 py-2 rounded hover:bg-green-100"><i data-lucide="layout-dashboard" class="w-[18px] h-[18px] shrink-0"></i> Dashboard</button>
+      <button data-section="flaechen" class="nav-btn flex items-center gap-3 text-left px-3 py-2 rounded hover:bg-green-100"><i data-lucide="map" class="w-[18px] h-[18px] shrink-0"></i> Flächen</button>
+      <button data-section="fuhrpark" class="nav-btn flex items-center gap-3 text-left px-3 py-2 rounded hover:bg-green-100"><i data-lucide="tractor" class="w-[18px] h-[18px] shrink-0"></i> Fuhrpark</button>
+      <button data-section="vieh" class="nav-btn flex items-center gap-3 text-left px-3 py-2 rounded hover:bg-green-100"><i data-lucide="paw-print" class="w-[18px] h-[18px] shrink-0"></i> Viehhaltung</button>
+      <button data-section="futtermittel" class="nav-btn flex items-center gap-3 text-left px-3 py-2 rounded hover:bg-green-100"><i data-lucide="wheat" class="w-[18px] h-[18px] shrink-0"></i> Futtermittel</button>
+      <button data-section="weinbau" class="nav-btn flex items-center gap-3 text-left px-3 py-2 rounded hover:bg-green-100"><i data-lucide="grape" class="w-[18px] h-[18px] shrink-0"></i> Weinbau &amp; Keller</button>
+      <button data-section="finanzen" class="nav-btn flex items-center gap-3 text-left px-3 py-2 rounded hover:bg-green-100"><i data-lucide="wallet" class="w-[18px] h-[18px] shrink-0"></i> Finanzen</button>
       <hr class="my-2">
-      <button data-section="einstellungen" class="nav-btn text-left px-3 py-2 rounded hover:bg-green-100">⚙️ Einstellungen</button>
+      <button data-section="einstellungen" class="nav-btn flex items-center gap-3 text-left px-3 py-2 rounded hover:bg-green-100"><i data-lucide="settings" class="w-[18px] h-[18px] shrink-0"></i> Einstellungen</button>
     </nav>
 
     <!-- Content -->
@@ -161,14 +162,14 @@
 
       <!-- DASHBOARD -->
       <section id="section-dashboard" class="app-section space-y-4">
-        <h2 class="text-2xl font-extrabold text-gray-800 tracking-tight">Dashboard</h2>
+        <h2 class="text-2xl font-extrabold text-gray-800 tracking-tight flex items-center gap-2"><i data-lucide="layout-dashboard" class="w-6 h-6 text-green-700"></i> Dashboard</h2>
         <div id="dashboardGrid"></div>
       </section>
 
       <!-- FLÄCHEN -->
       <section id="section-flaechen" class="app-section hidden space-y-4">
         <div class="flex items-center justify-between flex-wrap gap-2">
-          <h2 class="text-2xl font-extrabold text-gray-800 tracking-tight">Flächen &amp; Fruchtfolge</h2>
+          <h2 class="text-2xl font-extrabold text-gray-800 tracking-tight flex items-center gap-2"><i data-lucide="map" class="w-6 h-6 text-green-700"></i> Flächen &amp; Fruchtfolge</h2>
           <div class="flex gap-2 flex-wrap">
             <button id="btnWerkzeugeToggle" class="bg-gray-700 text-white px-3 py-2 rounded shadow hover:bg-gray-800 text-sm">🛠️ Karten-Werkzeuge</button>
             <button id="btnNeueFlaeche" class="bg-green-700 text-white px-3 py-2 rounded shadow hover:bg-green-800 text-sm">+ Neue Fläche</button>
@@ -234,7 +235,7 @@
       <!-- FUHRPARK -->
       <section id="section-fuhrpark" class="app-section hidden space-y-4">
         <div class="flex items-center justify-between">
-          <h2 class="text-2xl font-extrabold text-gray-800 tracking-tight">Fuhrpark &amp; Betriebsmittel</h2>
+          <h2 class="text-2xl font-extrabold text-gray-800 tracking-tight flex items-center gap-2"><i data-lucide="tractor" class="w-6 h-6 text-green-700"></i> Fuhrpark &amp; Betriebsmittel</h2>
           <button id="btnNeueMaschine" class="bg-green-700 text-white px-3 py-2 rounded shadow hover:bg-green-800 text-sm">+ Neue Maschine</button>
         </div>
         <div id="maschinenGrid" class="grid gap-4 md:grid-cols-2 xl:grid-cols-3"></div>
@@ -242,7 +243,7 @@
 
       <!-- WEINBAU & KELLER -->
       <section id="section-weinbau" class="app-section hidden space-y-4">
-        <h2 class="text-2xl font-extrabold text-gray-800 tracking-tight">Weinbau &amp; Kellerwirtschaft</h2>
+        <h2 class="text-2xl font-extrabold text-gray-800 tracking-tight flex items-center gap-2"><i data-lucide="grape" class="w-6 h-6 text-green-700"></i> Weinbau &amp; Kellerwirtschaft</h2>
         <p class="text-sm text-gray-500">Rebanlagen (Sub-Flächen) werden in der Flächen-Ansicht auf der Karte eingezeichnet - hier verwaltest du Pflege, Reife, Ernte und den Keller.</p>
         <div class="flex gap-2 border-b">
           <button data-wtab="rebanlagen" class="wtab-btn px-4 py-2 font-medium border-b-2 border-green-700">Rebanlagen</button>
@@ -269,7 +270,7 @@
       <!-- VIEHHALTUNG -->
       <section id="section-vieh" class="app-section hidden space-y-4">
         <div class="flex items-center justify-between flex-wrap gap-2">
-          <h2 class="text-2xl font-extrabold text-gray-800 tracking-tight">Viehhaltung</h2>
+          <h2 class="text-2xl font-extrabold text-gray-800 tracking-tight flex items-center gap-2"><i data-lucide="paw-print" class="w-6 h-6 text-green-700"></i> Viehhaltung</h2>
           <div class="flex gap-2">
             <button id="btnNeuesTier" class="bg-green-700 text-white px-3 py-2 rounded shadow hover:bg-green-800 text-sm">+ Einzeltier</button>
             <button id="btnExportBestandsregister" class="bg-gray-700 text-white px-3 py-2 rounded shadow hover:bg-gray-800 text-sm">⬇️ Bestandsregister (CSV)</button>
@@ -282,7 +283,7 @@
       <!-- FUTTERMITTEL -->
       <section id="section-futtermittel" class="app-section hidden space-y-4">
         <div class="flex items-center justify-between flex-wrap gap-2">
-          <h2 class="text-2xl font-extrabold text-gray-800 tracking-tight">Futtermittel</h2>
+          <h2 class="text-2xl font-extrabold text-gray-800 tracking-tight flex items-center gap-2"><i data-lucide="wheat" class="w-6 h-6 text-green-700"></i> Futtermittel</h2>
           <button id="btnNeuesFuttermittel" class="bg-green-700 text-white px-3 py-2 rounded shadow hover:bg-green-800 text-sm">+ Bestand anlegen</button>
         </div>
         <p class="text-sm text-gray-500">Erträge aus Schnitten (Feldbuch) und Ernten (Fruchtfolge) landen hier automatisch. Zukauf/sonstige Futtermittel (Kraftfutter, Stroh, ...) können hier auch manuell angelegt werden.</p>
@@ -292,7 +293,7 @@
       <!-- FINANZEN -->
       <section id="section-finanzen" class="app-section hidden space-y-4">
         <div class="flex items-center justify-between flex-wrap gap-3">
-          <h2 class="text-2xl font-extrabold text-gray-800 tracking-tight">Finanzen &amp; Auswertung</h2>
+          <h2 class="text-2xl font-extrabold text-gray-800 tracking-tight flex items-center gap-2"><i data-lucide="wallet" class="w-6 h-6 text-green-700"></i> Finanzen &amp; Auswertung</h2>
           <div class="flex items-center gap-3 flex-wrap text-sm bg-white px-3 py-2 rounded shadow">
             <label class="flex items-center gap-1">Jahr:
               <select id="finanzenJahr" class="border rounded px-2 py-1"></select>
@@ -335,7 +336,7 @@
 
       <!-- EINSTELLUNGEN -->
       <section id="section-einstellungen" class="app-section hidden space-y-4">
-        <h2 class="text-2xl font-extrabold text-gray-800 tracking-tight">Einstellungen</h2>
+        <h2 class="text-2xl font-extrabold text-gray-800 tracking-tight flex items-center gap-2"><i data-lucide="settings" class="w-6 h-6 text-green-700"></i> Einstellungen</h2>
         <div class="bg-white rounded-xl shadow p-4 space-y-3 max-w-xl">
           <h3 class="font-semibold">Betrieb</h3>
           <div id="betriebForm" class="space-y-2"></div>
