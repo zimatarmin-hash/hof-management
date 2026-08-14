@@ -11,6 +11,7 @@ function decodeJwtPayload(token) {
 
 const Auth = {
   idToken: null,
+  sessionToken: null,
   profile: null, // {email, name, picture}
 
   init(onSignedIn, onSignedOut) {
@@ -28,6 +29,19 @@ const Auth = {
       this.profile = JSON.parse(storedProfile);
     }
 
+    // Eigene, bis zu 30 Tage gültige Sitzung (siehe Backend authenticate()) - damit muss
+    // nach Ablauf des ~1-Stunden-Google-Tokens NICHT jedes Mal die komplette Google-
+    // Anmeldung erneut durchlaufen werden. Ist diese Sitzung noch gültig, gilt man als
+    // angemeldet, auch wenn kein frisches Google-ID-Token (mehr) vorliegt.
+    this.sessionToken = localStorage.getItem('hof_session_token');
+    const sessionExpires = localStorage.getItem('hof_session_expires');
+    const sessionGueltig = this.sessionToken && sessionExpires && new Date(sessionExpires) > new Date();
+    if (!sessionGueltig) { this.sessionToken = null; }
+
+    if (!this.profile && sessionGueltig && storedProfile) {
+      this.profile = JSON.parse(storedProfile);
+    }
+
     google.accounts.id.initialize({
       client_id: CONFIG.GOOGLE_CLIENT_ID,
       callback: (response) => this._handleCredential(response.credential),
@@ -42,7 +56,7 @@ const Auth = {
       theme: 'outline', size: 'large', shape: 'pill', text: 'signin_with', locale: 'de'
     });
 
-    if (this.idToken) {
+    if (this.profile && (this.idToken || sessionGueltig)) {
       this._onSignedIn && this._onSignedIn(this.profile);
     } else {
       google.accounts.id.prompt();
@@ -67,12 +81,35 @@ const Auth = {
     this._onSignedIn && this._onSignedIn(this.profile);
   },
 
+  // Wird von Api.call() nach jeder Antwort aufgerufen, die eine (neue/erneuerte) eigene
+  // Sitzung enthält - siehe Backend authenticate()/getOrCreateSession().
+  setSession(token, expiresAt) {
+    if (!token) return;
+    this.sessionToken = token;
+    localStorage.setItem('hof_session_token', token);
+    localStorage.setItem('hof_session_expires', expiresAt);
+  },
+
+  getSessionToken() {
+    const expires = localStorage.getItem('hof_session_expires');
+    if (!this.sessionToken || !expires || new Date(expires) <= new Date()) return null;
+    return this.sessionToken;
+  },
+
   signOut() {
     google.accounts.id.disableAutoSelect();
+    if (this.sessionToken) {
+      // Bestmüglich serverseitig ungültig machen - falls das (z.B. offline) fehlschlägt,
+      // ist es egal, die lokal gelöschten Werte reichen für dieses Gerät ohnehin aus.
+      Api.call('session.revoke', { sessionToken: this.sessionToken }).catch(() => {});
+    }
     this.idToken = null;
+    this.sessionToken = null;
     this.profile = null;
     localStorage.removeItem('hof_id_token');
     localStorage.removeItem('hof_profile');
+    localStorage.removeItem('hof_session_token');
+    localStorage.removeItem('hof_session_expires');
     this._onSignedOut && this._onSignedOut();
   },
 
@@ -94,7 +131,8 @@ const Api = {
   // zweimal im Hintergrund wiederholen, bevor der Nutzer einen Fehler sieht.
   async call(action, payload = {}, _attempt = 0) {
     const idToken = Auth.getIdToken();
-    if (!idToken) {
+    const sessionToken = Auth.getSessionToken();
+    if (!idToken && !sessionToken) {
       Auth.signOut();
       throw new Error('Sitzung abgelaufen. Bitte neu anmelden.');
     }
@@ -105,7 +143,7 @@ const Api = {
         method: 'POST',
         // text/plain vermeidet einen CORS-Preflight (OPTIONS), den Apps Script nicht handhabt
         headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-        body: JSON.stringify({ action, idToken, payload })
+        body: JSON.stringify({ action, idToken, sessionToken, payload })
       });
     } catch (networkErr) {
       if (_attempt < 2) { await sleep(700 * (_attempt + 1)); return this.call(action, payload, _attempt + 1); }
@@ -121,6 +159,9 @@ const Api = {
     }
 
     if (!data.success) throw new Error(data.error || 'Unbekannter Fehler.');
+    // Das Backend stellt bei erfolgreicher (idToken-basierter) Anmeldung eine eigene,
+    // länger gültige Sitzung aus/erneuert sie - ab dann für alle weiteren Aufrufe nutzen.
+    if (data.sessionToken) Auth.setSession(data.sessionToken, data.sessionExpires);
     return data.data;
   },
 

@@ -141,19 +141,60 @@ function cacheUpsert(action, record, idField = 'ID') {
   if (!(action in listCache) || !record) return;
   const idx = listCache[action].findIndex(r => r[idField] === record[idField]);
   if (idx >= 0) listCache[action][idx] = record; else listCache[action].push(record);
+  persistCacheDebounced();
 }
 
 function cacheRemove(action, id, idField = 'ID') {
   if (!(action in listCache)) return;
   listCache[action] = listCache[action].filter(r => r[idField] !== id);
+  persistCacheDebounced();
 }
 
 function invalidateCache(action) {
   delete listCache[action];
+  persistCacheDebounced();
 }
 
 function clearCache() {
   Object.keys(listCache).forEach(k => delete listCache[k]);
+}
+
+// ---- Cache über App-Neustarts hinweg lokal sichern -------------------------
+// Ohne das müsste bei JEDEM Öffnen der App (bzw. nach jedem Login) wieder komplett
+// neu geladen werden ("ewiges Laden"), obwohl sich die Daten seit dem letzten Mal oft
+// kaum geändert haben. Stattdessen: letzten bekannten Stand sofort anzeigen, im
+// Hintergrund still aktualisieren (siehe onSignedIn).
+const CACHE_STORAGE_KEY = 'hof_cache_v1';
+let _persistTimer = null;
+
+function persistCacheDebounced() {
+  // Mehrere Änderungen kurz hintereinander (z.B. innerhalb eines Batch-Vorgangs) zu
+  // EINEM Schreibvorgang bündeln, statt bei jeder einzelnen sofort das ganze (ggf.
+  // mehrere hundert KB große) Cache-Objekt in localStorage zu serialisieren.
+  clearTimeout(_persistTimer);
+  _persistTimer = setTimeout(() => {
+    try {
+      localStorage.setItem(CACHE_STORAGE_KEY, JSON.stringify({ listCache, betrieb: state.betrieb, savedAt: new Date().toISOString() }));
+    } catch (e) { /* z.B. Speicher voll - dann halt kein lokaler Schnellstart, kein Beinbruch */ }
+  }, 400);
+}
+
+function restoreCacheFromStorage() {
+  try {
+    const raw = localStorage.getItem(CACHE_STORAGE_KEY);
+    if (!raw) return false;
+    const parsed = JSON.parse(raw);
+    if (!parsed || !parsed.listCache) return false;
+    Object.assign(listCache, parsed.listCache);
+    if (parsed.betrieb) state.betrieb = parsed.betrieb;
+    return true;
+  } catch (e) {
+    return false;
+  }
+}
+
+function clearPersistedCache() {
+  localStorage.removeItem(CACHE_STORAGE_KEY);
 }
 
 // ============================================================================
@@ -196,8 +237,8 @@ const FULL_SYNC_CALLS = {
   dashboardSummary: { action: 'dashboard.summary' }
 };
 
-async function fullSync() {
-  showLoadingOverlay('Daten werden geladen …');
+async function fullSync({ silent = false } = {}) {
+  if (!silent) showLoadingOverlay('Daten werden geladen …');
   try {
     clearCache();
     const data = await safeBatch(FULL_SYNC_CALLS);
@@ -206,8 +247,9 @@ async function fullSync() {
     });
     state.betrieb = data.betrieb;
     if (data.betrieb && data.betrieb.HofName) document.getElementById('hofNameLabel').textContent = data.betrieb.HofName;
+    persistCacheDebounced();
   } finally {
-    hideLoadingOverlay();
+    if (!silent) hideLoadingOverlay();
   }
 }
 
@@ -225,6 +267,7 @@ const formModal = document.getElementById('formModal');
 const formModalForm = document.getElementById('formModalForm');
 const formModalBody = document.getElementById('formModalBody');
 const formModalTitle = document.getElementById('formModalTitle');
+const formModalSaveBtn = document.getElementById('formModalSave');
 
 document.getElementById('formModalClose').onclick = () => formModal.close();
 document.getElementById('formModalCancel').onclick = () => formModal.close();
@@ -282,8 +325,19 @@ function openFormModal({ title, fields, initial = {}, onSubmit }) {
   formModal.showModal();
 }
 
+let _formModalSpeichertGerade = false;
+
 formModalForm.addEventListener('submit', async (ev) => {
   ev.preventDefault();
+  // Schutz gegen Mehrfach-Absenden: ohne diese Sperre erzeugt mehrfaches/ungeduldiges
+  // Klicken auf "Speichern" (bevor der erste Request fertig ist) mehrere parallele
+  // Submits und damit doppelte/mehrfache Einträge.
+  if (_formModalSpeichertGerade) return;
+  _formModalSpeichertGerade = true;
+  formModalSaveBtn.disabled = true;
+  const urspruenglicherText = formModalSaveBtn.textContent;
+  formModalSaveBtn.textContent = 'Speichert …';
+
   const values = {};
   [...formModalBody.querySelectorAll('[name]')].forEach(el => {
     values[el.name] = el.type === 'checkbox' ? el.checked : el.type === 'file' ? el.files[0] : el.value;
@@ -293,6 +347,10 @@ formModalForm.addEventListener('submit', async (ev) => {
     formModal.close();
   } catch (e) {
     toast(e.message, true);
+  } finally {
+    _formModalSpeichertGerade = false;
+    formModalSaveBtn.disabled = false;
+    formModalSaveBtn.textContent = urspruenglicherText;
   }
 });
 
@@ -419,14 +477,23 @@ async function onSignedIn(profile) {
     document.getElementById('userAvatar').src = profile.picture || '';
     document.getElementById('userNameLabel').textContent = `${me.name} (${me.role})`;
 
-    await fullSync();
+    // Gibt es vom letzten Mal einen lokal gesicherten Datenstand, sofort damit anzeigen
+    // statt auf's Netzwerk zu warten ("ewiges Laden") - im Hintergrund wird still
+    // aktualisiert. Nur beim allerersten Login auf einem Gerät (noch kein lokaler
+    // Stand vorhanden) muss wie bisher auf den vollen Ladevorgang gewartet werden.
+    if (restoreCacheFromStorage()) {
+      if (state.betrieb && state.betrieb.HofName) document.getElementById('hofNameLabel').textContent = state.betrieb.HofName;
+      await showSection('dashboard');
+      hintergrundAktualisierung();
+    } else {
+      await fullSync();
+      await showSection('dashboard');
+    }
 
     // Ping + "wer ist aktiv" in EINEM gebündelten Request statt zwei getrennten
     // Hintergrund-Anfragen - weniger gleichzeitige Anfragen an Apps Script.
     refreshActiveUsersLabel();
     setInterval(refreshActiveUsersLabel, 3 * 60 * 1000);
-
-    await showSection('dashboard');
   } catch (e) {
     document.getElementById('loginError').textContent = e.message;
     document.getElementById('appShell').classList.add('hidden');
@@ -434,7 +501,26 @@ async function onSignedIn(profile) {
   }
 }
 
+// Lädt nach einem Sofort-Start aus dem lokalen Cache im Hintergrund den tatsächlich
+// aktuellen Stand nach - mit einem kleinen drehenden Icon statt dem vollen Ladebalken,
+// damit die bereits sichtbare Oberfläche dabei nicht verdeckt wird.
+async function hintergrundAktualisierung() {
+  const icon = document.querySelector('#btnAktualisieren .btn-refresh');
+  if (icon) icon.classList.add('spinning');
+  try {
+    await fullSync({ silent: true });
+    const aktiveSektion = document.querySelector('.nav-btn.active');
+    if (aktiveSektion) await showSection(aktiveSektion.dataset.section);
+  } catch (e) {
+    // Kein Blocker: die App zeigt einfach weiter den letzten bekannten (jetzt evtl.
+    // leicht veralteten) Stand, bis die Verbindung wieder klappt oder manuell aktualisiert wird.
+  } finally {
+    if (icon) icon.classList.remove('spinning');
+  }
+}
+
 function onSignedOut() {
+  clearPersistedCache();
   location.reload();
 }
 
@@ -625,19 +711,26 @@ function openDashTileDetail(id) {
 }
 
 async function loadDashboard() {
-  const { s, maschinen, intervalle, futtermittel, tanks, flaschenbestand, flaechen, fruchtfolge, feldarbeiten, tiere, todos } = await cachedBatch({
-    s: { action: 'dashboard.summary' },
-    maschinen: { action: 'maschinen.list' },
-    intervalle: { action: 'wartungsintervalle.list' },
-    futtermittel: { action: 'futtermittel.list' },
-    tanks: { action: 'tanks.list' },
-    flaschenbestand: { action: 'flaschenbestand.list' },
-    flaechen: { action: 'flaechen.list' },
-    fruchtfolge: { action: 'fruchtfolge.list' },
-    feldarbeiten: { action: 'feldarbeiten.list' },
-    tiere: { action: 'tiere.list' },
-    todos: { action: 'todos.list' }
-  });
+  // dashboard.summary wird bewusst NICHT über cachedBatch/listCache geführt: der Server
+  // hält ihn ohnehin schon ~20s selbst im Cache (günstig), aber ein clientseitiger Cache
+  // darüber hinaus würde nach jeder Änderung (neue Fläche, Tier, ...) beliebig lange
+  // veraltete Zahlen zeigen, bis man "Aktualisieren" drückt - hier soll jeder Dashboard-
+  // Aufruf den aktuellen (serverseitig kurz gecachten) Stand bekommen.
+  const [s, { maschinen, intervalle, futtermittel, tanks, flaschenbestand, flaechen, fruchtfolge, feldarbeiten, tiere, todos }] = await Promise.all([
+    safeCall('dashboard.summary'),
+    cachedBatch({
+      maschinen: { action: 'maschinen.list' },
+      intervalle: { action: 'wartungsintervalle.list' },
+      futtermittel: { action: 'futtermittel.list' },
+      tanks: { action: 'tanks.list' },
+      flaschenbestand: { action: 'flaschenbestand.list' },
+      flaechen: { action: 'flaechen.list' },
+      fruchtfolge: { action: 'fruchtfolge.list' },
+      feldarbeiten: { action: 'feldarbeiten.list' },
+      tiere: { action: 'tiere.list' },
+      todos: { action: 'todos.list' }
+    })
+  ]);
   state.maschinen = maschinen.filter(m => m.Aktiv !== false);
   state.wartungsintervalle = intervalle;
   const futtermittelAktiv = futtermittel.filter(f => f.Aktiv !== false);
@@ -695,7 +788,9 @@ async function loadDashboard() {
     drow('🌲 Wald', `${haVon(wald).toFixed(2)} ha`),
     drow('⛰️ Almweide', `${haVon(almweide).toFixed(2)} ha`)
   ].join('');
-  tiles.push(dashTileHtml({ id: 'flaechen', icon: '🗺️', title: 'Flächen', value: `${s.flaecheGesamtHa.toFixed(2)} ha`, sub: `${s.flaechenAnzahl} Parzellen`, section: 'flaechen', expandable: true, preview: flaechenPreview }));
+  // Kopfwert bewusst aus der (bereits aktuellen) Flächen-Liste berechnet statt aus s.* -
+  // so ist er nach einer Änderung sofort korrekt, ohne auf den serverseitigen Summary-Cache warten zu müssen.
+  tiles.push(dashTileHtml({ id: 'flaechen', icon: '🗺️', title: 'Flächen', value: `${haVon(flaechenAktiv).toFixed(2)} ha`, sub: `${flaechenAktiv.length} Parzellen`, section: 'flaechen', expandable: true, preview: flaechenPreview }));
 
   // ---- Anstehende Bearbeitungen (Arbeitsabläufe je Fläche) ----
   if (anstehend.length) {

@@ -58,6 +58,7 @@ var SHEET_SCHEMA = {
   Futtermittel: ['ID', 'Bezeichnung', 'Kategorie', 'Einheit', 'BestandAktuell', 'MindestBestand', 'Notiz', 'ErstelltVon', 'ErstelltAm', 'Aktiv'],
   FuttermittelBewegungen: ['ID', 'FuttermittelID', 'Datum', 'Typ', 'Menge', 'HerkunftFlaecheID', 'Notiz', 'ErfasstVon'],
   Todos: ['ID', 'Text', 'Prioritaet', 'Erledigt', 'ErstelltVon', 'ErstelltAm'],
+  Sessions: ['Token', 'Email', 'ErstelltAm', 'LaeuftAbAm'],
   AktivitaetsLog: ['Timestamp', 'UserEmail', 'UserName', 'Aktion', 'Details']
 };
 
@@ -221,12 +222,20 @@ function doPost(e) {
     if (!action) throw new Error('Kein "action" angegeben.');
 
     // auth.ping wird ohne vollen User-Check gebraucht? -> Nein, alles braucht Auth.
-    var user = authenticate(body.idToken);
+    var user = authenticate(body.idToken, body.sessionToken);
     var tAuth = Date.now();
     var result = routeAction(action, body.payload || {}, user);
     var tRoute = Date.now();
     debugLog('action=' + action + ' auth=' + (tAuth - t0) + 'ms route=' + (tRoute - tAuth) + 'ms gesamt=' + (tRoute - t0) + 'ms');
-    return jsonResponse({ success: true, data: result });
+    var response = { success: true, data: result };
+    // War die Anmeldung nur über das (kurzlebige) Google-ID-Token möglich, wird hier eine
+    // eigene, länger gültige Sitzung ausgestellt/erneuert - das Frontend nutzt sie ab jetzt
+    // statt jedes Mal eine neue Google-Anmeldung zu brauchen.
+    if (user._neueSitzung) {
+      response.sessionToken = user._neueSitzung.token;
+      response.sessionExpires = user._neueSitzung.expiresAt;
+    }
+    return jsonResponse(response);
   } catch (err) {
     debugLog('FEHLER bei action nach ' + (Date.now() - t0) + 'ms: ' + err.message);
     return jsonResponse({ success: false, error: err.message });
@@ -281,8 +290,21 @@ function verifyIdTokenCached(idToken) {
   return result;
 }
 
-function authenticate(idToken) {
-  if (!idToken) throw new Error('Nicht angemeldet (kein ID-Token).');
+// SITZUNGSDAUER: eigene, lange gültige Sitzung (im Unterschied zum Google-ID-Token, das
+// nur ~1 Std. gültig ist). Löst das Problem, dass man sich auf dem Handy (v.a. bei
+// installierten PWAs mit eigenem, von Safari getrenntem Speicher) ständig komplett neu
+// bei Google anmelden musste.
+var SITZUNG_GUELTIGKEITSTAGE = 30;
+
+function authenticate(idToken, sessionToken) {
+  // Schneller Pfad: eigene Sitzung, kein Google-Aufruf nötig (das ist der Normalfall,
+  // sobald einmal erfolgreich mit Google angemeldet wurde).
+  if (sessionToken) {
+    var viaSession = authenticateViaSession(sessionToken);
+    if (viaSession) return viaSession;
+    // Sitzung ungültig/abgelaufen -> unten regulär über idToken neu anmelden.
+  }
+  if (!idToken) throw new Error('Nicht angemeldet (kein gültiges Login).');
 
   // Auch bei bereits verifiziertem Token kostet der Rollen-Check in der
   // "Users"-Tabelle jedes Mal einen vollen (ersten) Tabellenblatt-Zugriff -
@@ -294,7 +316,12 @@ function authenticate(idToken) {
     Utilities.computeDigest(Utilities.DigestAlgorithm.MD5, idToken)
   );
   var cachedUser = cache.get(userCacheKey);
-  if (cachedUser) { debugLog('User-Cache: HIT'); return JSON.parse(cachedUser); }
+  if (cachedUser) {
+    debugLog('User-Cache: HIT');
+    var result = JSON.parse(cachedUser);
+    result._neueSitzung = getOrCreateSession(result.email);
+    return result;
+  }
 
   var verified = verifyIdTokenCached(idToken);
   var email = verified.email;
@@ -315,6 +342,7 @@ function authenticate(idToken) {
       createRecordRaw('Users', { Email: email, Name: name, Rolle: 'Admin', Status: 'Aktiv', AngelegtAm: nowIso() });
       result = { email: email, name: name, role: 'Admin' };
       cache.put(userCacheKey, JSON.stringify(result), 60);
+      result._neueSitzung = getOrCreateSession(email);
       return result;
     }
     throw new Error('Dieses Google-Konto (' + email + ') ist noch nicht freigeschaltet. Bitte einen Admin des Betriebs bitten, dich in der Users-Tabelle einzutragen.');
@@ -326,7 +354,86 @@ function authenticate(idToken) {
 
   result = { email: email, name: existing.Name || name, role: existing.Rolle };
   cache.put(userCacheKey, JSON.stringify(result), 60);
+  result._neueSitzung = getOrCreateSession(email);
   return result;
+}
+
+// Prüft eine eigene Sitzung (Token aus der "Sessions"-Tabelle) - kein externer Google-
+// Aufruf nötig, deutlich schneller als der volle idToken-Pfad. Kurz gecacht wie beim
+// idToken-Pfad, aus denselben Gründen (Rollen-/Sperr-Änderungen brauchen bis zu 60s).
+function authenticateViaSession(token) {
+  var cache = CacheService.getScriptCache();
+  var cacheKey = 'sess_' + Utilities.base64EncodeWebSafe(Utilities.computeDigest(Utilities.DigestAlgorithm.MD5, token));
+  var cached = cache.get(cacheKey);
+  if (cached) { debugLog('Sitzungs-Cache: HIT'); return JSON.parse(cached); }
+
+  var sessions = sheetToObjects(getSheet('Sessions'));
+  var found = null;
+  for (var i = 0; i < sessions.length; i++) {
+    if (sessions[i].Token === token) { found = sessions[i]; break; }
+  }
+  if (!found || new Date(found.LaeuftAbAm).getTime() < Date.now()) return null;
+
+  var email = String(found.Email).toLowerCase();
+  var rows = sheetToObjects(getSheet('Users'));
+  var existing = null;
+  for (var i = 0; i < rows.length; i++) {
+    if (String(rows[i].Email).toLowerCase() === email) { existing = rows[i]; break; }
+  }
+  if (!existing || String(existing.Status) !== 'Aktiv') return null;
+
+  var result = { email: email, name: existing.Name || email, role: existing.Rolle };
+  cache.put(cacheKey, JSON.stringify(result), 60);
+  return result;
+}
+
+// Liefert eine bestehende, noch gültige Sitzung für diese E-Mail (Sitzung wird beim
+// erneuten Anmelden auf demselben Gerät einfach weiterverwendet statt die Sessions-
+// Tabelle mit einer neuen Zeile pro Login zu füllen) oder legt eine neue an. Räumt dabei
+// nebenbei abgelaufene Zeilen für diese E-Mail auf.
+function getOrCreateSession(email) {
+  return withLock(function () {
+    var sheet = getSheet('Sessions');
+    var headers = getHeaders(sheet);
+    var rows = sheetToObjects(sheet);
+    var jetzt = Date.now();
+    var gueltige = null;
+
+    for (var i = rows.length - 1; i >= 0; i--) {
+      var r = rows[i];
+      if (String(r.Email).toLowerCase() !== email) continue;
+      if (new Date(r.LaeuftAbAm).getTime() < jetzt) {
+        sheet.deleteRow(r._row); // abgelaufen - aufräumen
+        continue;
+      }
+      if (!gueltige) gueltige = r;
+    }
+    if (gueltige) return { token: gueltige.Token, expiresAt: gueltige.LaeuftAbAm };
+
+    var token = Utilities.getUuid();
+    var ablauf = new Date(jetzt + SITZUNG_GUELTIGKEITSTAGE * 86400000).toISOString();
+    var row = headers.map(function (h) {
+      if (h === 'Token') return token;
+      if (h === 'Email') return email;
+      if (h === 'ErstelltAm') return nowIso();
+      if (h === 'LaeuftAbAm') return ablauf;
+      return '';
+    });
+    sheet.appendRow(row);
+    return { token: token, expiresAt: ablauf };
+  });
+}
+
+// Macht eine einzelne Sitzung (z.B. beim Abmelden auf diesem Gerät) sofort ungültig.
+function revokeSession(token) {
+  if (!token) return;
+  withLock(function () {
+    var sheet = getSheet('Sessions');
+    var rows = sheetToObjects(sheet);
+    for (var i = rows.length - 1; i >= 0; i--) {
+      if (rows[i].Token === token) sheet.deleteRow(rows[i]._row);
+    }
+  });
 }
 
 function requireAdmin(user) {
@@ -370,6 +477,9 @@ function routeAction(action, payload, user) {
       return abfuellungCreate(payload, user);
     case 'upload.file':
       return uploadFile(payload);
+    case 'session.revoke':
+      revokeSession(payload.sessionToken);
+      return { ok: true };
     case 'batch':
       // Führt mehrere Aktionen in EINEM Request/EINER Ausführung aus (siehe Api.batch
       // im Frontend). Spart Roundtrips - mehrere gleichzeitige einzelne Requests an

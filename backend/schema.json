@@ -187,6 +187,11 @@
     "hinweise": { "Typ": "Zugang (Ernte) | Zugang (Manuell) | Verfüttert | Verkauft | Verlust", "HerkunftFlaecheID": "Nur bei 'Zugang (Ernte)' gesetzt - Referenz auf die erntende Fläche" }
   },
 
+  "Sessions": {
+    "beschreibung": "Eigene, länger gültige Sitzungen (bis zu 30 Tage) - wird ausgestellt, sobald sich jemand per Google-ID-Token anmeldet, und danach anstelle des (nur ~1 Std. gültigen) Google-Tokens verwendet. Nicht über die generische Entitäten-API erreichbar, nur über die dedizierten Auth-Funktionen in code.gs.",
+    "spalten": ["Token", "Email", "ErstelltAm", "LaeuftAbAm"]
+  },
+
   "Todos": {
     "beschreibung": "Einfache To-Do-Liste, oben im Dashboard sichtbar. Gemeinsam für alle Nutzer sichtbar (kein Einzelnutzer-Filter).",
     "spalten": ["ID", "Text", "Prioritaet", "Erledigt", "ErstelltVon", "ErstelltAm"],
