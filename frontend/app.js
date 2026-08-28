@@ -440,22 +440,6 @@ async function showSection(name) {
 
 // ============================================================================
 // AUTH / BOOTSTRAP
-// ============================================================================
-// Das Google-Skript (accounts.google.com/gsi/client) lädt asynchron und ist auf
-// langsameren Verbindungen (v.a. mobil) oft noch nicht fertig, wenn DOMContentLoaded
-// feuert - ein direkter Aufruf würde dann mit "google is not defined" abstürzen,
-// ohne dass der Nutzer eine Fehlermeldung sieht. Deshalb hier aktiv abwarten.
-function waitForGoogleIdentity(callback, attempts = 0) {
-  if (window.google && window.google.accounts && window.google.accounts.id) {
-    callback();
-  } else if (attempts < 100) {
-    setTimeout(() => waitForGoogleIdentity(callback, attempts + 1), 100);
-  } else {
-    const err = document.getElementById('loginError');
-    if (err) err.textContent = 'Google-Anmeldedienst konnte nicht geladen werden. Bitte Internetverbindung prüfen und neu laden.';
-  }
-}
-
 window.addEventListener('DOMContentLoaded', () => {
   // Wandelt alle statisch im HTML vorhandenen <i data-lucide="..."> Platzhalter (Login-
   // Bildschirm, Kopfzeile, Navigation, Abschnitts-Überschriften) in echte SVG-Icons um.
@@ -463,7 +447,7 @@ window.addEventListener('DOMContentLoaded', () => {
   // Rendern jeweils selbst nochmal auf.
   lucide.createIcons();
 
-  waitForGoogleIdentity(() => Auth.init(onSignedIn, onSignedOut));
+  Auth.init(onSignedIn, onSignedOut);
 
   document.getElementById('signOutBtn').onclick = () => Auth.signOut();
   document.getElementById('btnAktualisieren').onclick = async (ev) => {
@@ -2128,7 +2112,6 @@ async function loadFuhrparkSection() {
         <button data-id="${m.ID}" class="btn-kosten text-xs bg-gray-100 hover:bg-gray-200 px-2 py-1 rounded">Kosten</button>
         <button data-id="${m.ID}" class="btn-wartung text-xs bg-gray-100 hover:bg-gray-200 px-2 py-1 rounded">Wartung</button>
         <button data-id="${m.ID}" class="btn-dokumente text-xs bg-gray-100 hover:bg-gray-200 px-2 py-1 rounded">Dokumente</button>
-        ${m.FotoDriveFileID ? `<button data-id="${m.ID}" class="btn-foto-reparieren text-xs bg-gray-100 hover:bg-gray-200 px-2 py-1 rounded" title="Hilft, falls das Foto auf manchen Geräten nicht angezeigt wird">🔗 Foto-Link erneuern</button>` : ''}
         ${state.user.role === 'Admin' ? `<button data-id="${m.ID}" class="btn-delete-maschine text-xs text-red-600 hover:underline ml-auto">Löschen</button>` : ''}
       </div>
       </div>
@@ -2147,13 +2130,6 @@ async function loadFuhrparkSection() {
   grid.querySelectorAll('.btn-kosten').forEach(b => b.onclick = () => openMaschinenKostenDetail(state.maschinen.find(m => m.ID === b.dataset.id)));
   grid.querySelectorAll('.btn-wartung').forEach(b => b.onclick = () => openWartungsintervalleDetail(state.maschinen.find(m => m.ID === b.dataset.id)));
   grid.querySelectorAll('.btn-dokumente').forEach(b => b.onclick = () => openDokumenteDetail(state.maschinen.find(m => m.ID === b.dataset.id)));
-  grid.querySelectorAll('.btn-foto-reparieren').forEach(b => b.onclick = async () => {
-    const m = state.maschinen.find(x => x.ID === b.dataset.id);
-    const saved = await safeCall('maschinen.update', { id: m.ID, FotoURL: `https://lh3.googleusercontent.com/d/${m.FotoDriveFileID}=w1000` }, 'Foto-Link erneuert.');
-    cacheUpsert('maschinen.list', saved);
-    await loadFuhrparkSection();
-  });
-
   document.getElementById('btnNeueMaschine').onclick = () => openMaschineModal();
 }
 
@@ -2177,12 +2153,7 @@ function openMaschineModal(initial = {}) {
       delete payload.Foto;
       if (values.Foto) {
         const up = await Api.uploadFile(values.Foto, 'maschine');
-        payload.FotoDriveFileID = up.fileId;
-        // up.url ist Drives Vorschauseite (gut als Link, aber nicht als <img src> darstellbar).
-        // drive.google.com/thumbnail lieferte auf manchen Mobilgeräten/Browsern (abhängig von
-        // Cookie-Einstellungen) statt des Bildes eine Google-Zwischenseite - der googleusercontent-CDN
-        // -Link ist reines Bild-Hosting ohne Session-/Cookie-Abhängigkeit und funktioniert zuverlässiger.
-        payload.FotoURL = `https://lh3.googleusercontent.com/d/${up.fileId}=w1000`;
+        payload.FotoURL = up.url;
       }
       const saved = initial.ID
         ? await safeCall('maschinen.update', { id: initial.ID, ...payload }, 'Aktualisiert.')
@@ -2273,14 +2244,14 @@ function openMaschinenKostenDetail(maschine) {
         { key: 'Beleg', label: 'Beleg-Foto/PDF', type: 'file', accept: 'image/*,.pdf' }
       ],
       onSubmit: async (values) => {
-        let belegDriveFileID = '', belegURL = '';
+        let belegURL = '';
         if (values.Beleg) {
           const up = await Api.uploadFile(values.Beleg, 'maschine');
-          belegDriveFileID = up.fileId; belegURL = up.url;
+          belegURL = up.url;
         }
         const saved = await safeCall('maschinenkosten.create', {
           MaschinenID: maschine.ID, Datum: values.Datum, Kategorie: values.Kategorie,
-          Betrag: values.Betrag, Beschreibung: values.Beschreibung, BelegDriveFileID: belegDriveFileID, BelegURL: belegURL
+          Betrag: values.Betrag, Beschreibung: values.Beschreibung, BelegURL: belegURL
         }, 'Kosten erfasst.');
         cacheUpsert('maschinenkosten.list', saved);
         await reload();
@@ -2327,11 +2298,11 @@ function openWartungErledigtModal(maschine, intervall, reload) {
     ],
     initial: { betriebsstunden: maschine.BetriebsstundenAktuell },
     onSubmit: async (values) => {
-      let belegDriveFileID = '', belegURL = '';
-      if (values.beleg) { const up = await Api.uploadFile(values.beleg, 'maschine'); belegDriveFileID = up.fileId; belegURL = up.url; }
+      let belegURL = '';
+      if (values.beleg) { const up = await Api.uploadFile(values.beleg, 'maschine'); belegURL = up.url; }
       const res = await safeCall('wartungsintervalle.erfassen', {
         id: intervall.ID, datum: values.datum, betriebsstunden: values.betriebsstunden,
-        kosten: values.kosten, belegDriveFileID, belegURL
+        kosten: values.kosten, belegURL
       }, 'Wartung erfasst - Zähler zurückgesetzt.');
       // Rückgabe enthält nur die neuen Kosten (falls angegeben) - Intervall selbst
       // lokal mit den gesendeten Werten nachführen, um einen weiteren Fetch zu sparen.
@@ -2598,9 +2569,9 @@ function openTierBuchungenDetail(tier) {
         { key: 'Beleg', label: 'Beleg-Foto/PDF', type: 'file', accept: 'image/*,.pdf' }
       ],
       onSubmit: async (values) => {
-        let belegDriveFileID = '', belegURL = '';
-        if (values.Beleg) { const up = await Api.uploadFile(values.Beleg, 'tier'); belegDriveFileID = up.fileId; belegURL = up.url; }
-        const saved = await safeCall('tierkosten.create', { TierID: tier.ID, ...values, BelegDriveFileID: belegDriveFileID, BelegURL: belegURL }, 'Kosten erfasst.');
+        let belegURL = '';
+        if (values.Beleg) { const up = await Api.uploadFile(values.Beleg, 'tier'); belegURL = up.url; }
+        const saved = await safeCall('tierkosten.create', { TierID: tier.ID, ...values, BelegURL: belegURL }, 'Kosten erfasst.');
         cacheUpsert('tierkosten.list', saved);
         await reload();
       }
@@ -2951,8 +2922,7 @@ function openFlaschenbestandModal(initial = {}) {
       delete payload.Foto;
       if (values.Foto) {
         const up = await Api.uploadFile(values.Foto, 'flasche');
-        payload.FotoDriveFileID = up.fileId;
-        payload.FotoURL = `https://lh3.googleusercontent.com/d/${up.fileId}=w1000`;
+        payload.FotoURL = up.url;
       }
       const saved = initial.ID
         ? await safeCall('flaschenbestand.update', { id: initial.ID, ...payload }, 'Aktualisiert.')
@@ -3366,9 +3336,9 @@ function openAllgemeineKostenModal() {
       { key: 'Beleg', label: 'Beleg', type: 'file', accept: 'image/*,.pdf' }
     ],
     onSubmit: async (values) => {
-      let belegDriveFileID = '', belegURL = '';
-      if (values.Beleg) { const up = await Api.uploadFile(values.Beleg, 'maschine'); belegDriveFileID = up.fileId; belegURL = up.url; }
-      const saved = await safeCall('allgemeinekosten.create', { ...values, BelegDriveFileID: belegDriveFileID, BelegURL: belegURL }, 'Kosten erfasst.');
+      let belegURL = '';
+      if (values.Beleg) { const up = await Api.uploadFile(values.Beleg, 'maschine'); belegURL = up.url; }
+      const saved = await safeCall('allgemeinekosten.create', { ...values, BelegURL: belegURL }, 'Kosten erfasst.');
       cacheUpsert('allgemeinekosten.list', saved);
       await loadFinanzenSection();
     }
@@ -3423,7 +3393,10 @@ async function loadEinstellungenSection() {
   };
 
   const isAdmin = state.user.role === 'Admin';
-  document.getElementById('btnNeuerUser').classList.toggle('hidden', !isAdmin);
+  // Neue Nutzer entstehen jetzt automatisch bei der ersten Google-Anmeldung (Supabase-
+  // Trigger legt das Profil an, zunächst mit Status "Gesperrt") - ein Admin kann sie
+  // hier danach nur noch freischalten/bearbeiten, nicht mehr im Voraus manuell anlegen.
+  document.getElementById('btnNeuerUser').classList.add('hidden');
 
   state.users = users;
   renderTable(document.getElementById('usersTable'),
@@ -3433,7 +3406,6 @@ async function loadEinstellungenSection() {
       onEdit: (row) => openUserModal(row),
       onDelete: async (row) => { await safeCall('users.delete', { id: row.Email }, 'Entfernt.'); cacheRemove('users.list', row.Email, 'Email'); await loadEinstellungenSection(); }
     } : {});
-  document.getElementById('btnNeuerUser').onclick = () => openUserModal();
 
   state.kulturen = kulturen;
   renderTable(document.getElementById('kulturenTable'),
@@ -3448,21 +3420,17 @@ async function loadEinstellungenSection() {
   document.getElementById('btnNeueKultur').onclick = () => openKulturModal();
 }
 
-function openUserModal(initial = {}) {
+function openUserModal(initial) {
   openFormModal({
-    title: initial.Email ? 'Benutzer bearbeiten' : 'Benutzer freischalten',
+    title: 'Benutzer bearbeiten',
     fields: [
-      { key: 'Email', label: 'Google-E-Mail-Adresse', required: true, help: 'Muss genau der Google-Konto-E-Mail der Person entsprechen.' },
       { key: 'Name', label: 'Name', required: true },
       { key: 'Rolle', label: 'Rolle', type: 'select', options: ['Mitarbeiter', 'Admin'] },
-      { key: 'Status', label: 'Status', type: 'select', options: ['Aktiv', 'Gesperrt'] }
+      { key: 'Status', label: 'Status', type: 'select', options: ['Aktiv', 'Gesperrt'], help: 'Neue Nutzer erscheinen hier automatisch nach ihrer ersten Google-Anmeldung, zunächst mit Status "Gesperrt".' }
     ],
     initial,
     onSubmit: async (values) => {
-      const saved = initial.Email
-        ? await safeCall('users.update', { id: initial.Email, ...values }, 'Aktualisiert.')
-        : await safeCall('users.create', { ...values, AngelegtAm: new Date().toISOString() }, 'Benutzer freigeschaltet.');
-      if (initial.Email && initial.Email !== saved.Email) cacheRemove('users.list', initial.Email, 'Email'); // E-Mail wurde umbenannt
+      const saved = await safeCall('users.update', { id: initial.Email, ...values }, 'Aktualisiert.');
       cacheUpsert('users.list', saved, 'Email');
       await loadEinstellungenSection();
     }

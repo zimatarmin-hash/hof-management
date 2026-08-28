@@ -3,14 +3,10 @@
 // ============================================================================
 
 const CONFIG = {
-  // URL deines veröffentlichten Google Apps Script Web Apps (endet auf /exec).
-  // Anleitung dazu: siehe README.md, Abschnitt "Backend veröffentlichen".
-  API_BASE_URL: 'https://script.google.com/macros/s/AKfycbxjAr7MlGr5lcbyfAJw8qc34q3_T21RZ2X_-D89gEVmAkfdwd8VvydYqVP9qaQZogl6gw/exec',
-
-  // OAuth 2.0 Client-ID (Web Application) aus der Google Cloud Console.
-  // Muss als "Autorisierter JavaScript-Origin" u.a. http://localhost:PORT und
-  // deine spätere GitHub-Pages-URL eingetragen haben. Siehe README.
-  GOOGLE_CLIENT_ID: '339593393540-makdc7m3ofus3209k78onh4e33ku4e12.apps.googleusercontent.com',
+  // Supabase-Projekt-URL und öffentlicher ("publishable") API-Key.
+  // Zu finden in Supabase: Project Settings -> API.
+  SUPABASE_URL: 'https://lovdniycmhfnraozhfnh.supabase.co',
+  SUPABASE_ANON_KEY: 'sb_publishable_CDpZVQnbGSWhzTVGSddmEQ_F6KB9jbb',
 
   // GeoServer-WMS der Autonomen Provinz Bozen (Kataster-Workspace).
   // Quelle: per GetCapabilities recherchiert/verifiziert.
