@@ -156,7 +156,8 @@ const ENTITIES = {
   tiere: { table: 'tiere', felder: {
     ID: 'id', Tierart: 'tierart', Ohrmarke: 'ohrmarke', Rasse: 'rasse', Name: 'name',
     Geburtsdatum: 'geburtsdatum', Geschlecht: 'geschlecht', Status: 'status',
-    MutterOhrmarke: 'mutter_ohrmarke', Notiz: 'notiz', ErstelltVon: 'erstellt_von', ErstelltAm: 'erstellt_am'
+    MutterOhrmarke: 'mutter_ohrmarke', Notiz: 'notiz', Eingangsdatum: 'eingangsdatum', Ausgangsdatum: 'ausgangsdatum',
+    ErstelltVon: 'erstellt_von', ErstelltAm: 'erstellt_am'
   } },
   zuchtereignisse: { table: 'zuchtereignisse', felder: {
     ID: 'id', TierID: 'tier_id', Datum: 'datum', Typ: 'typ', Vatertier: 'vatertier',

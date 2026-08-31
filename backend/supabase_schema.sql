@@ -212,6 +212,7 @@ create table public.tiere (
   id uuid primary key default gen_random_uuid(),
   tierart text, ohrmarke text, rasse text, name text, geburtsdatum date,
   geschlecht text, status text, mutter_ohrmarke text, notiz text,
+  eingangsdatum date, ausgangsdatum date,
   erstellt_von text, erstellt_am timestamptz default now()
 );
 

@@ -2346,8 +2346,10 @@ async function loadViehSection() {
   state.zuchtereignisse = zuchtereignisse;
   renderZuchtErinnerungen();
 
-  const grid = document.getElementById('tiereTable');
-  grid.innerHTML = state.tiere.map(t => `
+  const aktiveTiere = state.tiere.filter(t => t.Status === 'Lebend');
+  const ehemaligeTiere = state.tiere.filter(t => t.Status !== 'Lebend');
+
+  const tierKarte = t => `
     <div class="bg-white rounded-xl shadow p-4 space-y-2">
       <div class="flex items-center justify-between">
         <div class="font-semibold">${t.Name || t.Ohrmarke || 'unbenannt'}</div>
@@ -2355,6 +2357,8 @@ async function loadViehSection() {
       </div>
       <div class="text-xs text-gray-500">${t.Tierart}${t.Rasse ? ' · ' + t.Rasse : ''}${t.Ohrmarke && t.Name ? ' · ' + t.Ohrmarke : ''}</div>
       <div class="text-sm text-gray-600">${t.Status}${t.Geschlecht ? ' · ' + t.Geschlecht : ''}</div>
+      ${t.Eingangsdatum ? `<div class="text-xs text-gray-400">Zugang: ${fmtDate(t.Eingangsdatum)}</div>` : ''}
+      ${t.Ausgangsdatum ? `<div class="text-xs text-gray-400">Abgang: ${fmtDate(t.Ausgangsdatum)}</div>` : ''}
       <div class="text-xs text-gray-400">${zuchtstatusFuerTier(t.ID)}</div>
       <div class="text-sm text-gray-600">Deckungsbeitrag: <b>${euro(deckungsbeitragFuerTier(t.ID))}</b></div>
       <div class="flex gap-2 flex-wrap pt-2 border-t">
@@ -2362,17 +2366,33 @@ async function loadViehSection() {
         <button data-id="${t.ID}" class="btn-tier-edit text-xs bg-gray-100 hover:bg-gray-200 px-2 py-1 rounded">Bearbeiten</button>
         ${state.user.role === 'Admin' ? `<button data-id="${t.ID}" class="btn-tier-delete text-xs text-red-600 hover:underline ml-auto">Löschen</button>` : ''}
       </div>
-    </div>`).join('') || '<p class="text-gray-400">Noch keine Tiere erfasst.</p>';
+    </div>`;
 
-  grid.querySelectorAll('.btn-tier-buchungen').forEach(b => b.onclick = () => openTierBuchungenDetail(state.tiere.find(t => t.ID === b.dataset.id)));
-  grid.querySelectorAll('.btn-tier-edit').forEach(b => b.onclick = () => openTierModal(state.tiere.find(t => t.ID === b.dataset.id)));
-  grid.querySelectorAll('.btn-tier-delete').forEach(b => b.onclick = async () => {
-    if (confirm('Tier wirklich löschen?')) {
-      await safeCall('tiere.delete', { id: b.dataset.id }, 'Gelöscht.');
-      cacheRemove('tiere.list', b.dataset.id);
-      await loadViehSection();
-    }
+  const grid = document.getElementById('tiereTable');
+  grid.innerHTML = aktiveTiere.map(tierKarte).join('') || '<p class="text-gray-400">Noch keine Tiere erfasst.</p>';
+
+  const registerGrid = document.getElementById('tiereRegisterTable');
+  registerGrid.innerHTML = ehemaligeTiere.map(tierKarte).join('') || '<p class="text-gray-400">Kein ehemaliger Bestand.</p>';
+  document.getElementById('btnTiereRegisterToggle').textContent =
+    `📖 Register (ehemaliger Bestand, ${ehemaligeTiere.length}) ${registerGrid.classList.contains('hidden') ? 'anzeigen' : 'ausblenden'}`;
+
+  [grid, registerGrid].forEach(g => {
+    g.querySelectorAll('.btn-tier-buchungen').forEach(b => b.onclick = () => openTierBuchungenDetail(state.tiere.find(t => t.ID === b.dataset.id)));
+    g.querySelectorAll('.btn-tier-edit').forEach(b => b.onclick = () => openTierModal(state.tiere.find(t => t.ID === b.dataset.id)));
+    g.querySelectorAll('.btn-tier-delete').forEach(b => b.onclick = async () => {
+      if (confirm('Tier wirklich löschen?')) {
+        await safeCall('tiere.delete', { id: b.dataset.id }, 'Gelöscht.');
+        cacheRemove('tiere.list', b.dataset.id);
+        await loadViehSection();
+      }
+    });
   });
+
+  document.getElementById('btnTiereRegisterToggle').onclick = () => {
+    registerGrid.classList.toggle('hidden');
+    document.getElementById('btnTiereRegisterToggle').textContent =
+      `📖 Register (ehemaliger Bestand, ${ehemaligeTiere.length}) ${registerGrid.classList.contains('hidden') ? 'anzeigen' : 'ausblenden'}`;
+  };
 
   document.getElementById('btnNeuesTier').onclick = () => openTierModal();
   document.getElementById('btnExportBestandsregister').onclick = () => exportBestandsregisterCsv();
@@ -2426,7 +2446,7 @@ function downloadCsv(filename, rows) {
 }
 
 function exportBestandsregisterCsv() {
-  const header = ['Ohrmarke', 'Tierart', 'Rasse', 'Name', 'Geburtsdatum', 'Geschlecht', 'Status', 'MutterOhrmarke', 'ErstelltAm'];
+  const header = ['Ohrmarke', 'Tierart', 'Rasse', 'Name', 'Geburtsdatum', 'Geschlecht', 'Status', 'MutterOhrmarke', 'Eingangsdatum', 'Ausgangsdatum', 'ErstelltAm'];
   const rows = state.tiere.map(t => header.map(h => t[h]));
   downloadCsv(`Bestandsregister_${new Date().toISOString().slice(0, 10)}.csv`, [header, ...rows]);
   toast('Bestandsregister als CSV heruntergeladen.');
@@ -2448,7 +2468,9 @@ function openTierModal(initial = {}) {
       { key: 'Name', label: 'Name' },
       { key: 'Geburtsdatum', label: 'Geburtsdatum', type: 'date' },
       { key: 'Geschlecht', label: 'Geschlecht', type: 'select', options: ['weiblich', 'männlich'] },
+      { key: 'Eingangsdatum', label: 'Eingang am Betrieb (Kauf/Zugang)', type: 'date', help: 'Nur bei zugekauften Tieren nötig, falls abweichend vom Geburtsdatum.' },
       { key: 'Status', label: 'Status', type: 'select', options: ['Lebend', 'Verkauft', 'Geschlachtet', 'Verstorben'] },
+      { key: 'Ausgangsdatum', label: 'Ausgang (Verkauf/Schlachtung/Tod)', type: 'date', help: 'Beim Verkauf/Schlachten/Verenden zusammen mit dem Status hier eintragen - das Tier bleibt danach im Register erhalten.' },
       { key: 'MutterOhrmarke', label: 'Ohrmarke der Mutter (optional)' },
       { key: 'Notiz', label: 'Notiz', type: 'textarea' }
     ],
@@ -2871,6 +2893,7 @@ async function loadFlaschenlagerTab() {
         <div class="text-sm text-gray-600">Bestand: <b>${f.AnzahlAktuell}</b> Flaschen</div>
         <div class="flex gap-2 flex-wrap pt-2 border-t">
           <button data-id="${f.ID}" class="btn-flasche-austragen text-xs bg-gray-100 hover:bg-gray-200 px-2 py-1 rounded">📤 Austragen</button>
+          <button data-id="${f.ID}" class="btn-flasche-verlauf text-xs bg-gray-100 hover:bg-gray-200 px-2 py-1 rounded">📋 Verlauf</button>
           <button data-id="${f.ID}" class="btn-flasche-edit text-xs bg-gray-100 hover:bg-gray-200 px-2 py-1 rounded">Bearbeiten</button>
           ${state.user.role === 'Admin' ? `<button data-id="${f.ID}" class="btn-flasche-delete text-xs text-red-600 hover:underline ml-auto">Löschen</button>` : ''}
         </div>
@@ -2879,6 +2902,9 @@ async function loadFlaschenlagerTab() {
 
   grid.querySelectorAll('.btn-flasche-austragen').forEach(b => {
     b.onclick = () => openFlaschenAustragModal(state.flaschenbestand.find(f => f.ID === b.dataset.id));
+  });
+  grid.querySelectorAll('.btn-flasche-verlauf').forEach(b => {
+    b.onclick = () => openFlaschenBewegungenDetail(state.flaschenbestand.find(f => f.ID === b.dataset.id));
   });
   grid.querySelectorAll('.btn-flasche-edit').forEach(b => {
     b.onclick = () => openFlaschenbestandModal(state.flaschenbestand.find(f => f.ID === b.dataset.id));
@@ -2950,6 +2976,78 @@ function openFlaschenAustragModal(bestand) {
         }, 'Erlös in Finanzen erfasst.');
         cacheUpsert('erntevermarktung.list', erntevermarktung);
       }
+      await loadFlaschenlagerTab();
+    }
+  });
+}
+
+// "Zugang (Abfüllung)" erhöht den Bestand, Eigenbedarf/Verkauf verringern ihn -
+// wird gebraucht, um beim Bearbeiten/Löschen eines Eintrags AnzahlAktuell korrekt nachzuführen.
+function flaschenbewegungVorzeichen(typ) {
+  return typ && typ.indexOf('Zugang') === 0 ? 1 : -1;
+}
+
+function openFlaschenBewegungenDetail(bestand) {
+  openDetailModal(`Verlauf: ${bestand.Bezeichnung}`, async (body) => {
+    body.innerHTML = `<div id="fbVerlaufSumme" class="text-sm text-gray-600 mb-2"></div><div id="fbVerlaufTable"></div>`;
+    const reload = async () => {
+      const alle = await cachedList('flaschenbewegungen.list');
+      const rows = alle.filter(b => b.FlaschenbestandID === bestand.ID).sort((a, b) => new Date(b.Datum) - new Date(a.Datum));
+      const eigenbedarfGesamt = rows.filter(r => r.Typ === 'Eigenbedarf').reduce((s, r) => s + Number(r.Anzahl || 0), 0);
+      document.getElementById('fbVerlaufSumme').textContent = `Eigenbedarf insgesamt: ${eigenbedarfGesamt} Flaschen`;
+      renderTable(document.getElementById('fbVerlaufTable'),
+        [
+          { label: 'Datum', format: r => fmtDate(r.Datum) },
+          { key: 'Typ', label: 'Typ' },
+          { key: 'Anzahl', label: 'Anzahl' },
+          { label: 'Erlös', format: r => r.Erloes ? euro(r.Erloes) : '' },
+          { key: 'Notiz', label: 'Notiz' }
+        ], rows,
+        {
+          onEdit: (row) => openFlaschenBewegungModal(bestand, row, reload),
+          onDelete: async (row) => {
+            const aktuellerBestand = state.flaschenbestand.find(f => f.ID === bestand.ID) || bestand;
+            const neueAnzahl = Number(aktuellerBestand.AnzahlAktuell || 0) - flaschenbewegungVorzeichen(row.Typ) * Number(row.Anzahl || 0);
+            await safeCall('flaschenbewegungen.delete', { id: row.ID }, 'Gelöscht.');
+            invalidateCache('flaschenbewegungen.list');
+            const saved = await safeCall('flaschenbestand.update', { id: bestand.ID, AnzahlAktuell: neueAnzahl });
+            cacheUpsert('flaschenbestand.list', saved);
+            bestand.AnzahlAktuell = saved.AnzahlAktuell;
+            await reload();
+            await loadFlaschenlagerTab();
+          }
+        });
+    };
+    await reload();
+  });
+}
+
+function openFlaschenBewegungModal(bestand, initial, reload) {
+  openFormModal({
+    title: 'Eintrag bearbeiten',
+    fields: [
+      { key: 'Datum', label: 'Datum', type: 'date', required: true },
+      { key: 'Typ', label: 'Typ', type: 'select', options: ['Zugang (Abfüllung)', 'Eigenbedarf', 'Verkauf'], required: true },
+      { key: 'Anzahl', label: 'Anzahl Flaschen', type: 'number', required: true },
+      { key: 'Erloes', label: 'Erlös (€, nur bei Verkauf)', type: 'number', step: '0.01' },
+      { key: 'Notiz', label: 'Notiz' }
+    ],
+    initial,
+    onSubmit: async (values) => {
+      const aktuellerBestand = state.flaschenbestand.find(f => f.ID === bestand.ID) || bestand;
+      const alteWirkung = flaschenbewegungVorzeichen(initial.Typ) * Number(initial.Anzahl || 0);
+      const neueWirkung = flaschenbewegungVorzeichen(values.Typ) * Number(values.Anzahl || 0);
+      const neueAnzahl = Number(aktuellerBestand.AnzahlAktuell || 0) - alteWirkung + neueWirkung;
+      if (neueAnzahl < 0) {
+        toast('Das würde den Bestand negativ machen - bitte Anzahl prüfen.', true);
+        return;
+      }
+      const saved = await safeCall('flaschenbewegungen.update', { id: initial.ID, ...values }, 'Aktualisiert.');
+      invalidateCache('flaschenbewegungen.list');
+      const bestandSaved = await safeCall('flaschenbestand.update', { id: bestand.ID, AnzahlAktuell: neueAnzahl });
+      cacheUpsert('flaschenbestand.list', bestandSaved);
+      bestand.AnzahlAktuell = bestandSaved.AnzahlAktuell;
+      await reload();
       await loadFlaschenlagerTab();
     }
   });

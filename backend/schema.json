@@ -141,9 +141,9 @@
   },
 
   "Tiere": {
-    "beschreibung": "Einzeltier-Verwaltung (primär Rinder, aber für jede Tierart mit Einzeltier-Tracking nutzbar).",
-    "spalten": ["ID", "Tierart", "Ohrmarke", "Rasse", "Name", "Geburtsdatum", "Geschlecht", "Status", "MutterOhrmarke", "Notiz", "ErstelltVon", "ErstelltAm"],
-    "hinweise": { "Tierart": "Rind | Ziege | Schaf | Sonstiges", "Geschlecht": "weiblich | männlich", "Status": "Lebend | Verkauft | Geschlachtet | Verstorben" }
+    "beschreibung": "Einzeltier-Verwaltung (primär Rinder, aber für jede Tierart mit Einzeltier-Tracking nutzbar). Tiere mit Status != Lebend werden nicht gelöscht, sondern im Frontend als eigenes Register (ehemaliger Bestand) separat angezeigt.",
+    "spalten": ["ID", "Tierart", "Ohrmarke", "Rasse", "Name", "Geburtsdatum", "Geschlecht", "Status", "MutterOhrmarke", "Notiz", "Eingangsdatum", "Ausgangsdatum", "ErstelltVon", "ErstelltAm"],
+    "hinweise": { "Tierart": "Rind | Ziege | Schaf | Sonstiges", "Geschlecht": "weiblich | männlich", "Status": "Lebend | Verkauft | Geschlachtet | Verstorben", "Eingangsdatum": "Zugang/Kauf am Betrieb, kann vom Geburtsdatum abweichen (zugekaufte Tiere)", "Ausgangsdatum": "Verkauf/Schlachtung/Tod" }
   },
 
   "Zuchtereignisse": {
