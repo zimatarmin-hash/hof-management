@@ -106,23 +106,27 @@ create table public.duengungen (
   erfasst_von text, erfasst_am timestamptz default now()
 );
 
+-- sub_flaeche_id ist BEWUSST ohne Fremdschlüssel: das Frontend erlaubt, eine ganze
+-- Fläche (Nutzungsart Weinbau/Obstbau) direkt als "Rebanlage" zu behandeln, wenn sie
+-- nicht in SubFlächen unterteilt ist - dann steht hier eine flaechen.id statt einer
+-- sub_flaechen.id drin. Ein FK auf sub_flaechen würde solche Einträge ablehnen.
 create table public.weinbau_massnahmen (
   id uuid primary key default gen_random_uuid(),
-  sub_flaeche_id uuid references public.sub_flaechen(id) on delete cascade,
+  sub_flaeche_id uuid,
   datum date, massnahme text, bio boolean, mittel text, notiz text,
   erfasst_von text, erfasst_am timestamptz default now()
 );
 
 create table public.reifemessungen (
   id uuid primary key default gen_random_uuid(),
-  sub_flaeche_id uuid references public.sub_flaechen(id) on delete cascade,
+  sub_flaeche_id uuid,
   datum date, oechsle numeric, brix numeric, kmw numeric, saeure numeric, ph numeric, notiz text,
   erfasst_von text, erfasst_am timestamptz default now()
 );
 
 create table public.wein_lese (
   id uuid primary key default gen_random_uuid(),
-  sub_flaeche_id uuid references public.sub_flaechen(id) on delete cascade,
+  sub_flaeche_id uuid,
   datum date, menge_kg numeric, mostgewicht_oechsle numeric, notiz text,
   erfasst_von text, erfasst_am timestamptz default now()
 );

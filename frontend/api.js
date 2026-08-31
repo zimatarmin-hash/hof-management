@@ -584,8 +584,25 @@ async function abfuellungenCreateFn(payload) {
 // ============================================================================
 // API
 // ============================================================================
+// Verhindert, dass eine Anfrage bei schlechter (v.a. mobiler) Verbindung ewig
+// hängen bleibt, ohne dass ein Fehler zurückkommt - ohne das dreht sich z.B. das
+// Aktualisieren-Symbol unbegrenzt weiter, obwohl längst nichts mehr passiert.
+const API_TIMEOUT_MS = 20000;
+
+function withTimeout(promise, label) {
+  let timer;
+  const timeout = new Promise((_, reject) => {
+    timer = setTimeout(() => reject(new Error(`Zeitüberschreitung bei "${label}" - bitte Internetverbindung prüfen und erneut versuchen.`)), API_TIMEOUT_MS);
+  });
+  return Promise.race([promise, timeout]).finally(() => clearTimeout(timer));
+}
+
 const Api = {
   async call(action, payload = {}) {
+    return withTimeout(this._dispatch(action, payload), action);
+  },
+
+  async _dispatch(action, payload = {}) {
     payload = payload || {};
     switch (action) {
       case 'auth.me': return authMeFn();

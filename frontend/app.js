@@ -2955,7 +2955,7 @@ function openFlaschenAustragModal(bestand) {
       if (values.Typ === 'Verkauf' && Number(values.Erloes) > 0) {
         const erntevermarktung = await safeCall('erntevermarktung.create', {
           Datum: values.Datum, Kategorie: 'Wein', Menge: values.Anzahl, Einheit: 'Flaschen',
-          Erloes: values.Erloes, Beschreibung: `Verkauf ${bestand.Bezeichnung}`
+          Erloes: values.Erloes, Beschreibung: `Verkauf ${bestand.Bezeichnung}` + (values.Notiz ? ` — ${values.Notiz}` : '')
         }, 'Erlös in Finanzen erfasst.');
         cacheUpsert('erntevermarktung.list', erntevermarktung);
       }
