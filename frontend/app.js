@@ -2741,18 +2741,72 @@ function openFuttermittelBewegungModal(bestand) {
   });
 }
 
-async function openFuttermittelVerlauf(bestand) {
-  const alle = await cachedList('futtermittelbewegungen.list');
-  const bewegungen = alle.filter(b => b.FuttermittelID === bestand.ID).sort((a, b) => new Date(b.Datum) - new Date(a.Datum));
-  openDetailModal(`Verlauf: ${bestand.Bezeichnung}`, (body) => {
-    renderTable(body,
-      [
-        { label: 'Datum', format: r => fmtDate(r.Datum) },
-        { key: 'Typ', label: 'Typ' },
-        { label: 'Menge', format: r => `${r.Menge} ${bestand.Einheit || ''}` },
-        { key: 'Notiz', label: 'Notiz' }
-      ],
-      bewegungen, {});
+// 'Zugang (...)' erhöht den Bestand, alles andere (Verfüttert/Verkauft/Verlust)
+// verringert ihn - wird gebraucht, um beim Bearbeiten/Löschen eines Eintrags
+// BestandAktuell korrekt nachzuführen.
+function futtermittelbewegungVorzeichen(typ) {
+  return typ && typ.indexOf('Zugang') === 0 ? 1 : -1;
+}
+
+function openFuttermittelVerlauf(bestand) {
+  openDetailModal(`Verlauf: ${bestand.Bezeichnung}`, async (body) => {
+    const reload = async () => {
+      const alle = await cachedList('futtermittelbewegungen.list');
+      const bewegungen = alle.filter(b => b.FuttermittelID === bestand.ID).sort((a, b) => new Date(b.Datum) - new Date(a.Datum));
+      renderTable(body,
+        [
+          { label: 'Datum', format: r => fmtDate(r.Datum) },
+          { key: 'Typ', label: 'Typ' },
+          { label: 'Menge', format: r => `${r.Menge} ${bestand.Einheit || ''}` },
+          { key: 'Notiz', label: 'Notiz' }
+        ],
+        bewegungen,
+        {
+          onEdit: (row) => openFuttermittelBewegungBearbeitenModal(bestand, row, reload),
+          onDelete: async (row) => {
+            const aktuellerBestand = state.futtermittel.find(f => f.ID === bestand.ID) || bestand;
+            const neuerBestand = Number(aktuellerBestand.BestandAktuell || 0) - futtermittelbewegungVorzeichen(row.Typ) * Number(row.Menge || 0);
+            await safeCall('futtermittelbewegungen.delete', { id: row.ID }, 'Gelöscht.');
+            invalidateCache('futtermittelbewegungen.list');
+            const saved = await safeCall('futtermittel.update', { id: bestand.ID, BestandAktuell: neuerBestand });
+            cacheUpsert('futtermittel.list', saved);
+            bestand.BestandAktuell = saved.BestandAktuell;
+            await reload();
+            await loadFuttermittelSection();
+          }
+        });
+    };
+    await reload();
+  });
+}
+
+function openFuttermittelBewegungBearbeitenModal(bestand, initial, reload) {
+  openFormModal({
+    title: 'Bewegung bearbeiten',
+    fields: [
+      { key: 'Datum', label: 'Datum', type: 'date', required: true },
+      { key: 'Typ', label: 'Typ', type: 'select', options: ['Verfüttert', 'Verkauft', 'Verlust', 'Zugang (Manuell)', 'Zugang (Ernte)'], required: true },
+      { key: 'Menge', label: `Menge (${bestand.Einheit || ''})`, type: 'number', step: '0.1', required: true },
+      { key: 'Notiz', label: 'Notiz' }
+    ],
+    initial,
+    onSubmit: async (values) => {
+      const aktuellerBestand = state.futtermittel.find(f => f.ID === bestand.ID) || bestand;
+      const alteWirkung = futtermittelbewegungVorzeichen(initial.Typ) * Number(initial.Menge || 0);
+      const neueWirkung = futtermittelbewegungVorzeichen(values.Typ) * Number(values.Menge || 0);
+      const neuerBestand = Number(aktuellerBestand.BestandAktuell || 0) - alteWirkung + neueWirkung;
+      if (neuerBestand < 0) {
+        toast('Das würde den Bestand negativ machen - bitte Menge prüfen.', true);
+        return;
+      }
+      const saved = await safeCall('futtermittelbewegungen.update', { id: initial.ID, ...values }, 'Aktualisiert.');
+      invalidateCache('futtermittelbewegungen.list');
+      const bestandSaved = await safeCall('futtermittel.update', { id: bestand.ID, BestandAktuell: neuerBestand });
+      cacheUpsert('futtermittel.list', bestandSaved);
+      bestand.BestandAktuell = bestandSaved.BestandAktuell;
+      await reload();
+      await loadFuttermittelSection();
+    }
   });
 }
 
