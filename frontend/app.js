@@ -450,11 +450,7 @@ window.addEventListener('DOMContentLoaded', () => {
   Auth.init(onSignedIn, onSignedOut);
 
   document.getElementById('signOutBtn').onclick = () => Auth.signOut();
-  document.getElementById('btnAktualisieren').onclick = async (ev) => {
-    const icon = ev.currentTarget.querySelector('.btn-refresh');
-    icon.classList.add('spinning');
-    try { await refreshAll(); } finally { icon.classList.remove('spinning'); }
-  };
+  document.getElementById('btnAktualisieren').onclick = () => refreshAll();
 });
 
 async function onSignedIn(profile) {
@@ -492,11 +488,8 @@ async function onSignedIn(profile) {
 }
 
 // Lädt nach einem Sofort-Start aus dem lokalen Cache im Hintergrund den tatsächlich
-// aktuellen Stand nach - mit einem kleinen drehenden Icon statt dem vollen Ladebalken,
-// damit die bereits sichtbare Oberfläche dabei nicht verdeckt wird.
+// aktuellen Stand nach, ohne die bereits sichtbare Oberfläche dabei zu verdecken.
 async function hintergrundAktualisierung() {
-  const icon = document.querySelector('#btnAktualisieren .btn-refresh');
-  if (icon) icon.classList.add('spinning');
   try {
     await fullSync({ silent: true });
     const aktiveSektion = document.querySelector('.nav-btn.active');
@@ -504,8 +497,6 @@ async function hintergrundAktualisierung() {
   } catch (e) {
     // Kein Blocker: die App zeigt einfach weiter den letzten bekannten (jetzt evtl.
     // leicht veralteten) Stand, bis die Verbindung wieder klappt oder manuell aktualisiert wird.
-  } finally {
-    if (icon) icon.classList.remove('spinning');
   }
 }
 
@@ -3204,12 +3195,6 @@ function jahrVon(datum) {
   return isNaN(d) ? null : d.getFullYear();
 }
 
-function deckungsbeitragFuerTierJahr(tierId, jahr) {
-  const kosten = state.tierkosten.filter(k => k.TierID === tierId && jahrVon(k.Datum) === jahr).reduce((s, k) => s + Number(k.Betrag || 0), 0);
-  const erloese = state.tiererloese.filter(k => k.TierID === tierId && jahrVon(k.Datum) === jahr).reduce((s, k) => s + Number(k.Betrag || 0), 0);
-  return erloese - kosten;
-}
-
 async function loadFinanzenSection() {
   const { maschinenkosten, tierkosten, tiererloese, allgemeinekosten, erntevermarktung, maschinen, tiere } = await cachedBatch({
     maschinenkosten: { action: 'maschinenkosten.list' },
@@ -3233,7 +3218,6 @@ async function loadFinanzenSection() {
 
   document.getElementById('finanzenJahr').onchange = renderFinanzen;
   document.getElementById('finanzenAnschaffungToggle').onchange = renderFinanzen;
-  document.getElementById('tierAuswertungModus').onchange = renderFinanzen;
 
   document.getElementById('btnNeueAllgemeineKosten').onclick = () => openAllgemeineKostenModal();
   document.getElementById('btnNeueErntevermarktung').onclick = () => openErntevermarktungModal();
@@ -3253,7 +3237,6 @@ function populateFinanzenJahrDropdown() {
 function renderFinanzen() {
   const jahr = Number(document.getElementById('finanzenJahr').value);
   const mitAnschaffung = document.getElementById('finanzenAnschaffungToggle').checked;
-  const modus = document.getElementById('tierAuswertungModus').value;
   const inJahr = r => jahrVon(r.Datum) === jahr;
   const sum = (rows, feld) => rows.reduce((s, r) => s + Number(r[feld || 'Betrag'] || 0), 0);
 
@@ -3291,17 +3274,13 @@ function renderFinanzen() {
       <div class="w-full bg-gray-100 rounded h-3"><div class="${color} h-3 rounded" style="width:${(val / max * 100).toFixed(1)}%"></div></div>
     </div>`).join('') + `<div class="pt-2 font-bold">Saldo ${jahr}: ${euro(erloeseGesamt - kostenGesamt)}</div>`;
 
-  document.getElementById('deckungsbeitragTitel').textContent =
-    modus === 'jahr' ? `Tier-Auswertung ${jahr} (Jahresbilanz)` : 'Deckungsbeitrag je Tier (Lebenszyklus, gesamt)';
+  document.getElementById('deckungsbeitragTitel').textContent = 'Deckungsbeitrag je Tier (Lebenszyklus, gesamt)';
   renderTable(document.getElementById('deckungsbeitragTable'),
     [
       { label: 'Tier', format: r => `${r.Name || ''} (${r.Ohrmarke || '-'})` },
       { key: 'Tierart', label: 'Tierart' },
       { key: 'Status', label: 'Status' },
-      {
-        label: modus === 'jahr' ? `Bilanz ${jahr}` : 'Deckungsbeitrag',
-        format: r => euro(modus === 'jahr' ? deckungsbeitragFuerTierJahr(r.ID, jahr) : deckungsbeitragFuerTier(r.ID))
-      }
+      { label: 'Deckungsbeitrag', format: r => euro(deckungsbeitragFuerTier(r.ID)) }
     ], state.tiere, {});
 
   renderTable(document.getElementById('allgemeineKostenTable'),

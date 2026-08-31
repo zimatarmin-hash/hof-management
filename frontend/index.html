@@ -45,8 +45,6 @@
     100% { transform: translateX(150%) scaleX(0.4); }
   }
   .loadingbar-inner { animation: loadingbar 1.3s ease-in-out infinite; transform-origin: left; }
-  @keyframes spin-slow { to { transform: rotate(360deg); } }
-  .btn-refresh.spinning { animation: spin-slow 0.8s linear infinite; }
   /* Zuverlässiger mobiler Menü-Toggle unabhängig von Tailwind-Utility-Reihenfolge
      (ID+Klasse hat höhere Spezifität als die einzelne .hidden-Utility-Klasse). */
   @media (max-width: 767px) {
@@ -321,12 +319,6 @@
             </label>
             <label class="flex items-center gap-1">
               <input type="checkbox" id="finanzenAnschaffungToggle"> Anschaffungskosten einbeziehen
-            </label>
-            <label class="flex items-center gap-1">Tier-Auswertung:
-              <select id="tierAuswertungModus" class="border rounded px-2 py-1">
-                <option value="lebenszyklus">Lebenszyklus (gesamt)</option>
-                <option value="jahr">Jahresbilanz</option>
-              </select>
             </label>
           </div>
         </div>
