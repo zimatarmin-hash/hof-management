@@ -3019,15 +3019,17 @@ function openFlaschenAustragModal(bestand) {
         toast('Anzahl übersteigt den aktuellen Bestand.', true);
         return;
       }
-      await safeCall('flaschenbewegungen.create', { FlaschenbestandID: bestand.ID, ...values }, 'Austrag erfasst.');
+      const bewegung = await safeCall('flaschenbewegungen.create', { FlaschenbestandID: bestand.ID, ...values }, 'Austrag erfasst.');
       invalidateCache('flaschenbewegungen.list');
       const saved = await safeCall('flaschenbestand.update', { id: bestand.ID, AnzahlAktuell: Number(bestand.AnzahlAktuell || 0) - Number(values.Anzahl) });
       cacheUpsert('flaschenbestand.list', saved);
       if (values.Typ === 'Verkauf' && Number(values.Erloes) > 0) {
         const erntevermarktung = await safeCall('erntevermarktung.create', {
           Datum: values.Datum, Kategorie: 'Wein', Menge: values.Anzahl, Einheit: 'Flaschen',
-          Erloes: values.Erloes, Beschreibung: `Verkauf ${bestand.Bezeichnung}` + (values.Notiz ? ` — ${values.Notiz}` : '')
+          Erloes: values.Erloes, Beschreibung: `Verkauf ${bestand.Bezeichnung}` + (values.Notiz ? ` — ${values.Notiz}` : ''),
+          FlaschenbewegungID: bewegung.ID
         }, 'Erlös in Finanzen erfasst.');
+        invalidateCache('erntevermarktung.list');
         cacheUpsert('erntevermarktung.list', erntevermarktung);
       }
       await loadFlaschenlagerTab();
@@ -3039,6 +3041,15 @@ function openFlaschenAustragModal(bestand) {
 // wird gebraucht, um beim Bearbeiten/Löschen eines Eintrags AnzahlAktuell korrekt nachzuführen.
 function flaschenbewegungVorzeichen(typ) {
   return typ && typ.indexOf('Zugang') === 0 ? 1 : -1;
+}
+
+// Findet den bei einem "Verkauf"-Austrag automatisch angelegten Erntevermarktung-Eintrag
+// wieder (per flaschenbewegung_id verknüpft) - cache-frisch, damit ein gerade erst
+// angelegter/geänderter Eintrag garantiert gefunden wird.
+async function findVerknuepfteErntevermarktung(bewegungId) {
+  invalidateCache('erntevermarktung.list');
+  const alle = await cachedList('erntevermarktung.list');
+  return alle.find(e => e.FlaschenbewegungID === bewegungId) || null;
 }
 
 function openFlaschenBewegungenDetail(bestand) {
@@ -3062,11 +3073,16 @@ function openFlaschenBewegungenDetail(bestand) {
           onDelete: async (row) => {
             const aktuellerBestand = state.flaschenbestand.find(f => f.ID === bestand.ID) || bestand;
             const neueAnzahl = Number(aktuellerBestand.AnzahlAktuell || 0) - flaschenbewegungVorzeichen(row.Typ) * Number(row.Anzahl || 0);
+            const verknuepft = row.Typ === 'Verkauf' ? await findVerknuepfteErntevermarktung(row.ID) : null;
             await safeCall('flaschenbewegungen.delete', { id: row.ID }, 'Gelöscht.');
             invalidateCache('flaschenbewegungen.list');
             const saved = await safeCall('flaschenbestand.update', { id: bestand.ID, AnzahlAktuell: neueAnzahl });
             cacheUpsert('flaschenbestand.list', saved);
             bestand.AnzahlAktuell = saved.AnzahlAktuell;
+            if (verknuepft) {
+              await safeCall('erntevermarktung.delete', { id: verknuepft.ID }, 'Zugehöriger Finanzen-Eintrag entfernt.');
+              cacheRemove('erntevermarktung.list', verknuepft.ID);
+            }
             await reload();
             await loadFlaschenlagerTab();
           }
@@ -3101,6 +3117,30 @@ function openFlaschenBewegungModal(bestand, initial, reload) {
       const bestandSaved = await safeCall('flaschenbestand.update', { id: bestand.ID, AnzahlAktuell: neueAnzahl });
       cacheUpsert('flaschenbestand.list', bestandSaved);
       bestand.AnzahlAktuell = bestandSaved.AnzahlAktuell;
+
+      // Zugehörigen Finanzen-Eintrag (falls vorhanden) nachführen: löschen wenn nicht mehr
+      // Verkauf, neu anlegen wenn neu Verkauf, sonst nur die Werte aktualisieren.
+      const verknuepft = await findVerknuepfteErntevermarktung(initial.ID);
+      const beschreibung = `Verkauf ${bestand.Bezeichnung}` + (values.Notiz ? ` — ${values.Notiz}` : '');
+      if (values.Typ === 'Verkauf' && Number(values.Erloes) > 0) {
+        if (verknuepft) {
+          const aktualisiert = await safeCall('erntevermarktung.update', {
+            id: verknuepft.ID, Datum: values.Datum, Menge: values.Anzahl, Erloes: values.Erloes, Beschreibung: beschreibung
+          }, 'Finanzen-Eintrag aktualisiert.');
+          cacheUpsert('erntevermarktung.list', aktualisiert);
+        } else {
+          const neu = await safeCall('erntevermarktung.create', {
+            Datum: values.Datum, Kategorie: 'Wein', Menge: values.Anzahl, Einheit: 'Flaschen',
+            Erloes: values.Erloes, Beschreibung: beschreibung, FlaschenbewegungID: initial.ID
+          }, 'Erlös in Finanzen erfasst.');
+          invalidateCache('erntevermarktung.list');
+          cacheUpsert('erntevermarktung.list', neu);
+        }
+      } else if (verknuepft) {
+        await safeCall('erntevermarktung.delete', { id: verknuepft.ID }, 'Finanzen-Eintrag entfernt.');
+        cacheRemove('erntevermarktung.list', verknuepft.ID);
+      }
+
       await reload();
       await loadFlaschenlagerTab();
     }
@@ -3342,6 +3382,8 @@ function openAbfuellungModal(tank) {
 // ============================================================================
 // FINANZEN
 // ============================================================================
+const ERNTEVERMARKTUNG_KATEGORIEN = ['Heuballen', 'Siloballen', 'Silomais', 'Brennholz', 'Stammholz', 'Trauben', 'Wein', 'Sonstiges'];
+
 function jahrVon(datum) {
   const d = new Date(datum);
   return isNaN(d) ? null : d.getFullYear();
@@ -3366,13 +3408,22 @@ async function loadFinanzenSection() {
   state.tiere = tiere;
 
   populateFinanzenJahrDropdown();
+  populateErntevermarktungKategorieFilter();
   renderFinanzen();
 
   document.getElementById('finanzenJahr').onchange = renderFinanzen;
   document.getElementById('finanzenAnschaffungToggle').onchange = renderFinanzen;
+  document.getElementById('erntevermarktungKategorieFilter').onchange = renderFinanzen;
 
   document.getElementById('btnNeueAllgemeineKosten').onclick = () => openAllgemeineKostenModal();
   document.getElementById('btnNeueErntevermarktung').onclick = () => openErntevermarktungModal();
+}
+
+function populateErntevermarktungKategorieFilter() {
+  const sel = document.getElementById('erntevermarktungKategorieFilter');
+  const bisher = sel.value;
+  sel.innerHTML = '<option value="">Alle</option>' + ERNTEVERMARKTUNG_KATEGORIEN.map(k => `<option value="${k}">${k}</option>`).join('');
+  sel.value = ERNTEVERMARKTUNG_KATEGORIEN.includes(bisher) ? bisher : '';
 }
 
 function populateFinanzenJahrDropdown() {
@@ -3445,13 +3496,17 @@ function renderFinanzen() {
     [...state.allgemeinekosten].sort((a, b) => new Date(b.Datum) - new Date(a.Datum)),
     { onDelete: async (row) => { await safeCall('allgemeinekosten.delete', { id: row.ID }, 'Gelöscht.'); cacheRemove('allgemeinekosten.list', row.ID); await loadFinanzenSection(); } });
 
+  const kategorieFilter = document.getElementById('erntevermarktungKategorieFilter').value;
+  const erntevermarktungGefiltert = kategorieFilter
+    ? state.erntevermarktung.filter(r => r.Kategorie === kategorieFilter)
+    : state.erntevermarktung;
   renderTable(document.getElementById('erntevermarktungTable'),
     [
       { label: 'Datum', format: r => fmtDate(r.Datum) }, { key: 'Kategorie', label: 'Kategorie' },
       { label: 'Menge', format: r => `${r.Menge || ''} ${r.Einheit || ''}` },
       { label: 'Erlös', format: r => euro(r.Erloes) }, { key: 'Beschreibung', label: 'Beschreibung' }
     ],
-    [...state.erntevermarktung].sort((a, b) => new Date(b.Datum) - new Date(a.Datum)),
+    [...erntevermarktungGefiltert].sort((a, b) => new Date(b.Datum) - new Date(a.Datum)),
     { onDelete: async (row) => { await safeCall('erntevermarktung.delete', { id: row.ID }, 'Gelöscht.'); cacheRemove('erntevermarktung.list', row.ID); await loadFinanzenSection(); } });
 }
 
@@ -3481,7 +3536,7 @@ function openErntevermarktungModal() {
     title: 'Ernte-/Holz-/Weinverkauf erfassen',
     fields: [
       { key: 'Datum', label: 'Datum', type: 'date', required: true },
-      { key: 'Kategorie', label: 'Kategorie', type: 'select', options: ['Heuballen', 'Siloballen', 'Silomais', 'Brennholz', 'Stammholz', 'Trauben', 'Wein', 'Sonstiges'] },
+      { key: 'Kategorie', label: 'Kategorie', type: 'select', options: ERNTEVERMARKTUNG_KATEGORIEN },
       { key: 'Menge', label: 'Menge', type: 'number', step: '0.1' },
       { key: 'Einheit', label: 'Einheit', type: 'select', options: ['Ballen', 'Tonnen', 'Festmeter', 'Raummeter', 'kg', 'Liter'] },
       { key: 'Erloes', label: 'Erlös (€)', type: 'number', step: '0.01', required: true },

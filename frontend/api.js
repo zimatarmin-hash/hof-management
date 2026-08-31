@@ -151,7 +151,8 @@ const ENTITIES = {
   } },
   erntevermarktung: { table: 'erntevermarktung', felder: {
     ID: 'id', Datum: 'datum', Kategorie: 'kategorie', Menge: 'menge', Einheit: 'einheit',
-    Erloes: 'erloes', Beschreibung: 'beschreibung', ErfasstVon: 'erfasst_von', ErfasstAm: 'erfasst_am'
+    Erloes: 'erloes', Beschreibung: 'beschreibung', FlaschenbewegungID: 'flaschenbewegung_id',
+    ErfasstVon: 'erfasst_von', ErfasstAm: 'erfasst_am'
   } },
   tiere: { table: 'tiere', felder: {
     ID: 'id', Tierart: 'tierart', Ohrmarke: 'ohrmarke', Rasse: 'rasse', Name: 'name',

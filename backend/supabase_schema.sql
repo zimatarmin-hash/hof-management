@@ -205,6 +205,9 @@ create table public.allgemeine_kosten (
 create table public.erntevermarktung (
   id uuid primary key default gen_random_uuid(),
   datum date, kategorie text, menge numeric, einheit text, erloes numeric, beschreibung text,
+  -- gesetzt, wenn diese Zeile automatisch aus einem "Verkauf"-Austrag im Flaschenlager
+  -- entstanden ist - erlaubt, sie beim Bearbeiten/Löschen der Bewegung nachzuführen.
+  flaschenbewegung_id uuid references public.flaschen_bewegungen(id) on delete set null,
   erfasst_von text, erfasst_am timestamptz default now()
 );
 

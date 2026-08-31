@@ -136,8 +136,8 @@
 
   "Erntevermarktung": {
     "beschreibung": "Verkaufserlöse aus Ernte-/Forstprodukten und Wein (kein Einzeltier-Verkauf - dafür TierErloese).",
-    "spalten": ["ID", "Datum", "Kategorie", "Menge", "Einheit", "Erloes", "Beschreibung", "ErfasstVon", "ErfasstAm"],
-    "hinweise": { "Kategorie": "Heuballen | Siloballen | Silomais | Brennholz | Stammholz | Trauben | Wein | Sonstiges", "Einheit": "Ballen | Tonnen | Festmeter | Raummeter | kg | Liter" }
+    "spalten": ["ID", "Datum", "Kategorie", "Menge", "Einheit", "Erloes", "Beschreibung", "FlaschenbewegungID", "ErfasstVon", "ErfasstAm"],
+    "hinweise": { "Kategorie": "Heuballen | Siloballen | Silomais | Brennholz | Stammholz | Trauben | Wein | Sonstiges", "Einheit": "Ballen | Tonnen | Festmeter | Raummeter | kg | Liter", "FlaschenbewegungID": "Gesetzt, wenn automatisch aus einem Verkauf-Austrag im Flaschenlager entstanden - erlaubt Nachführen bei Bearbeiten/Löschen der Bewegung" }
   },
 
   "Tiere": {

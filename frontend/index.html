@@ -341,7 +341,12 @@
         <div class="bg-white rounded-xl shadow p-4 space-y-3">
           <div class="flex items-center justify-between flex-wrap gap-2">
             <h3 class="font-semibold">Erntevermarktung (Heu/Silage/Holz/Wein)</h3>
-            <button id="btnNeueErntevermarktung" class="bg-green-100 text-green-700 px-3 py-2 rounded text-sm">+ Verkauf erfassen</button>
+            <div class="flex items-center gap-2 flex-wrap">
+              <label class="flex items-center gap-1 text-sm">Kategorie:
+                <select id="erntevermarktungKategorieFilter" class="border rounded px-2 py-1"></select>
+              </label>
+              <button id="btnNeueErntevermarktung" class="bg-green-100 text-green-700 px-3 py-2 rounded text-sm">+ Verkauf erfassen</button>
+            </div>
           </div>
           <div id="erntevermarktungTable" class="overflow-x-auto"></div>
         </div>
