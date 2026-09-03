@@ -303,18 +303,18 @@ async function logActivity(user, aktion, details) {
 // lange her) plus ein "gerade aktiv"-Flag (innerhalb der letzten 15 Minuten) - für die
 // kompakte Anzeige in der Seitenleiste ("wer ist gerade da, wann war der andere zuletzt da").
 async function allUserActivityFn() {
-  const { data: profiles, error: e0 } = await supabaseClient.from('profiles').select('email, name').eq('status', 'Aktiv').order('name');
-  if (e0) throw new Error(e0.message);
-  const { data: logs, error: e1 } = await supabaseClient
-    .from('aktivitaets_log').select('user_email, ts').order('ts', { ascending: false }).limit(500);
-  if (e1) throw new Error(e1.message);
-  const letzteAktivitaet = {};
-  (logs || []).forEach(l => { if (!(l.user_email in letzteAktivitaet)) letzteAktivitaet[l.user_email] = l.ts; });
+  // Läuft über eine SECURITY DEFINER-Funktion (nicht direkt über die profiles-Tabelle):
+  // deren RLS-Regel lässt normale Mitarbeiter nur ihre eigene Zeile lesen, "wer war
+  // wann aktiv" soll aber für alle sichtbar sein - siehe backend/add_user_activity_overview.sql.
+  const { data, error } = await supabaseClient.rpc('user_activity_overview');
+  if (error) throw new Error(error.message);
   const cutoff = Date.now() - 15 * 60 * 1000;
-  return (profiles || []).map(p => {
-    const lastSeen = letzteAktivitaet[p.email] || null;
-    return { email: p.email, name: p.name, lastSeen, aktivJetzt: !!lastSeen && new Date(lastSeen).getTime() >= cutoff };
-  });
+  return (data || [])
+    .map(r => ({
+      email: r.email, name: r.name, lastSeen: r.last_seen,
+      aktivJetzt: !!r.last_seen && new Date(r.last_seen).getTime() >= cutoff
+    }))
+    .sort((a, b) => new Date(b.lastSeen || 0) - new Date(a.lastSeen || 0));
 }
 
 // ============================================================================
