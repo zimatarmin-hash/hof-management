@@ -28,6 +28,7 @@ const state = {
   tiererloese: [],
   users: [],
   betrieb: null,
+  wetterDetail: null,
   map: null,
   katasterWmsLayer: null,
   flaechenLayerGroup: null,
@@ -79,12 +80,6 @@ async function safeCall(action, payload, successMsg) {
   try {
     const res = await Api.call(action, payload);
     if (successMsg) toast(successMsg);
-    // Jede schreibende Aktion kann die Dashboard-Summen verändern - da diese
-    // (anders als die Einzellisten) serverseitig berechnet und nicht lokal
-    // nachrechenbar sind, den Cache dafür invalidieren statt zu patchen.
-    if (/\.(create|update|delete|addStunden|erfassen)$/.test(action)) {
-      invalidateCache('dashboard.summary');
-    }
     return res;
   } catch (e) {
     toast(e.message, true);
@@ -233,8 +228,7 @@ const FULL_SYNC_CALLS = {
   zuchtereignisse: { action: 'zuchtereignisse.list' },
   tierkosten: { action: 'tierkosten.list' },
   tiererloese: { action: 'tiererloese.list' },
-  users: { action: 'users.list' },
-  dashboardSummary: { action: 'dashboard.summary' }
+  users: { action: 'users.list' }
 };
 
 async function fullSync({ silent = false } = {}) {
@@ -476,10 +470,8 @@ async function onSignedIn(profile) {
       await showSection('dashboard');
     }
 
-    // Ping + "wer ist aktiv" in EINEM gebündelten Request statt zwei getrennten
-    // Hintergrund-Anfragen - weniger gleichzeitige Anfragen an Apps Script.
-    refreshActiveUsersLabel();
-    setInterval(refreshActiveUsersLabel, 3 * 60 * 1000);
+    refreshSidebarAktiveNutzer();
+    setInterval(refreshSidebarAktiveNutzer, 3 * 60 * 1000);
   } catch (e) {
     document.getElementById('loginError').textContent = e.message;
     document.getElementById('appShell').classList.add('hidden');
@@ -505,14 +497,34 @@ function onSignedOut() {
   location.reload();
 }
 
-async function refreshActiveUsersLabel() {
+// Grob-relative Zeitangabe ("vor 5 Min.", "gestern", ...) für "zuletzt aktiv" - ein
+// exaktes Datum/Uhrzeit wäre für diesen Zweck unnötig genau und schwerer überfliegbar.
+function zeitSeit(iso) {
+  if (!iso) return 'noch nie aktiv';
+  const minuten = Math.floor((Date.now() - new Date(iso).getTime()) / 60000);
+  if (minuten < 1) return 'gerade eben';
+  if (minuten < 60) return `vor ${minuten} Min.`;
+  const stunden = Math.floor(minuten / 60);
+  if (stunden < 24) return `vor ${stunden} Std.`;
+  const tage = Math.floor(stunden / 24);
+  if (tage === 1) return 'gestern';
+  if (tage < 7) return `vor ${tage} Tagen`;
+  return fmtDate(iso);
+}
+
+// Kompakte Liste unten in der Seitenleiste: wer gerade aktiv ist, und wann die
+// anderen zuletzt aktiv waren (statt nur der kurzlebigen "gerade aktiv"-Ansicht von früher).
+async function refreshSidebarAktiveNutzer() {
   try {
-    const { users } = await Api.batch({
+    const { nutzer } = await Api.batch({
       ping: { action: 'activity.ping' },
-      users: { action: 'dashboard.activeUsers' }
+      nutzer: { action: 'dashboard.userActivity' }
     });
-    const label = document.getElementById('activeUsersLabel');
-    label.textContent = users.length ? `🟢 Aktiv: ${users.map(u => u.name).join(', ')}` : '';
+    const el = document.getElementById('sidebarAktiveNutzer');
+    el.innerHTML = nutzer.map(u => u.aktivJetzt
+      ? `<div><span class="text-green-500">●</span> ${u.name} <span class="text-gray-400">aktiv</span></div>`
+      : `<div>${u.name} — ${zeitSeit(u.lastSeen)}</div>`
+    ).join('');
   } catch (e) { /* still fine */ }
 }
 
@@ -577,7 +589,8 @@ const DASH_TILE_SECTIONS = {
   arbeiten: { section: 'flaechen', label: 'Flächen' },
   wartung: { section: 'fuhrpark', label: 'Fuhrpark' },
   futter: { section: 'futtermittel', label: 'Futtermittel' },
-  keller: { section: 'weinbau', label: 'Weinbau & Keller' }
+  keller: { section: 'weinbau', label: 'Weinbau & Keller' },
+  wetter: { section: 'flaechen', label: 'Flächen' }
 };
 
 // Öffnet das Detail-Fenster einer Dashboard-Kachel mit einem fest sichtbaren Link zum
@@ -707,30 +720,59 @@ function openDashTileDetail(id) {
         [{ key: 'Bezeichnung', label: 'Bezeichnung' }, { label: 'Anzahl', format: r => `${r.AnzahlAktuell} Flaschen` }], d.flaschenbestandAktiv,
         { onRowClick: (row) => { detailModal.close(); openFlaschenAustragModal(row); } });
     });
+  } else if (id === 'wetter') {
+    openDashDetailWithSection('Wetter - Details', id, (inner) => {
+      const w = state.wetterDetail;
+      if (!w) { inner.innerHTML = '<p class="text-gray-400 text-sm py-2">Wetterdaten nicht verfügbar.</p>'; return; }
+      inner.innerHTML = `
+        ${w.aktuell ? `<div class="flex items-center gap-3 mb-4">
+          <div class="text-4xl">${weatherIcon(w.aktuell.weather_code)}</div>
+          <div><div class="text-2xl font-bold">${w.aktuell.temperature_2m.toFixed(0)}°C</div><div class="text-sm text-gray-500">${weatherLabel(w.aktuell.weather_code)}</div></div>
+        </div>` : ''}
+        <div class="grid grid-cols-2 gap-3 mb-4 text-sm">
+          <div class="bg-gray-50 rounded-lg p-3"><span class="text-gray-400 text-xs">Niederschlag letzte 7 Tage</span><br><b>${w.niederschlag7.toFixed(1)} mm</b></div>
+          <div class="bg-gray-50 rounded-lg p-3"><span class="text-gray-400 text-xs">Verdunstung letzte 7 Tage</span><br><b>${w.verdunstung7.toFixed(1)} mm</b></div>
+        </div>
+        ${w.maehfenster
+          ? `<div class="mb-4 text-green-700 text-sm">🌤️ Gutes Mähfenster: ${fmtDate(w.maehfenster.von)} – ${fmtDate(w.maehfenster.bis)} (trocken)</div>`
+          : `<div class="mb-4 text-gray-500 text-sm">Kein trockenes Mähfenster in den nächsten Tagen erkennbar.</div>`}
+        <div class="overflow-x-auto">
+          <table class="min-w-full text-sm">
+            <thead><tr class="text-left text-gray-500 border-b">
+              <th class="py-2 pr-4">Tag</th><th class="py-2 pr-4">Wetter</th><th class="py-2 pr-4">Temp. (min/max)</th>
+              <th class="py-2 pr-4">Regenwahrsch.</th><th class="py-2 pr-4">Regenmenge</th><th class="py-2 pr-4">Sonnenstunden</th>
+            </tr></thead>
+            <tbody>
+              ${w.naechsten7.map((t, i) => `<tr class="border-b">
+                <td class="py-2 pr-4">${i === 0 ? 'Heute' : new Date(t.datum).toLocaleDateString('de-DE', { weekday: 'short', day: '2-digit', month: '2-digit' })}</td>
+                <td class="py-2 pr-4">${t.code !== undefined ? weatherIcon(t.code) : '🌡️'} ${t.code !== undefined ? weatherLabel(t.code) : ''}</td>
+                <td class="py-2 pr-4">${t.tempMin !== null ? Math.round(t.tempMin) + '°' : '-'} / ${t.tempMax !== null ? Math.round(t.tempMax) + '°' : '-'}</td>
+                <td class="py-2 pr-4">${t.regenWk !== null ? Math.round(t.regenWk) + '%' : '-'}</td>
+                <td class="py-2 pr-4">${t.regenMm !== null ? t.regenMm.toFixed(1) + ' mm' : '-'}</td>
+                <td class="py-2 pr-4">${t.sonne !== null ? t.sonne.toFixed(1) + ' h' : '-'}</td>
+              </tr>`).join('')}
+            </tbody>
+          </table>
+        </div>
+        <div class="text-xs text-gray-400 mt-3">7-Tage-Vorhersage gemittelt aus mehreren Wettermodellen (ICON, ECMWF, GFS). Quelle: Open-Meteo.</div>
+      `;
+    });
   }
 }
 
 async function loadDashboard() {
-  // dashboard.summary wird bewusst NICHT über cachedBatch/listCache geführt: der Server
-  // hält ihn ohnehin schon ~20s selbst im Cache (günstig), aber ein clientseitiger Cache
-  // darüber hinaus würde nach jeder Änderung (neue Fläche, Tier, ...) beliebig lange
-  // veraltete Zahlen zeigen, bis man "Aktualisieren" drückt - hier soll jeder Dashboard-
-  // Aufruf den aktuellen (serverseitig kurz gecachten) Stand bekommen.
-  const [s, { maschinen, intervalle, futtermittel, tanks, flaschenbestand, flaechen, fruchtfolge, feldarbeiten, tiere, todos }] = await Promise.all([
-    safeCall('dashboard.summary'),
-    cachedBatch({
-      maschinen: { action: 'maschinen.list' },
-      intervalle: { action: 'wartungsintervalle.list' },
-      futtermittel: { action: 'futtermittel.list' },
-      tanks: { action: 'tanks.list' },
-      flaschenbestand: { action: 'flaschenbestand.list' },
-      flaechen: { action: 'flaechen.list' },
-      fruchtfolge: { action: 'fruchtfolge.list' },
-      feldarbeiten: { action: 'feldarbeiten.list' },
-      tiere: { action: 'tiere.list' },
-      todos: { action: 'todos.list' }
-    })
-  ]);
+  const { maschinen, intervalle, futtermittel, tanks, flaschenbestand, flaechen, fruchtfolge, feldarbeiten, tiere, todos } = await cachedBatch({
+    maschinen: { action: 'maschinen.list' },
+    intervalle: { action: 'wartungsintervalle.list' },
+    futtermittel: { action: 'futtermittel.list' },
+    tanks: { action: 'tanks.list' },
+    flaschenbestand: { action: 'flaschenbestand.list' },
+    flaechen: { action: 'flaechen.list' },
+    fruchtfolge: { action: 'fruchtfolge.list' },
+    feldarbeiten: { action: 'feldarbeiten.list' },
+    tiere: { action: 'tiere.list' },
+    todos: { action: 'todos.list' }
+  });
   state.maschinen = maschinen.filter(m => m.Aktiv !== false);
   state.wartungsintervalle = intervalle;
   const futtermittelAktiv = futtermittel.filter(f => f.Aktiv !== false);
@@ -831,21 +873,21 @@ async function loadDashboard() {
     tiles.push(dashTileHtml({ id: 'keller', icon: lucideIcon('grape'), title: 'Keller', value: `${literGesamt.toFixed(0)} l`, sub: `${flaschenGesamt} Flaschen`, section: 'weinbau', expandable: true, preview: kellerPreview }));
   }
 
-  // ---- Wetter: Platzhalter, wird gleich unten asynchron befüllt (externe API) ----
-  tiles.push(dashTileHtml({
-    id: 'wetter', icon: lucideIcon('cloud-sun'), title: 'Wetter', value: 'Lädt …', sub: '', section: 'flaechen',
-    preview: '<p class="text-gray-400 text-xs py-2">Wetterdaten werden geladen …</p>'
-  }));
-
-  // ---- Gerade aktiv ----
-  tiles.push(dashTileHtml({
-    id: 'aktiv', icon: lucideIcon('users'), title: 'Aktiv', value: s.aktiveNutzer.length, sub: s.aktiveNutzer.length ? s.aktiveNutzer.map(u => u.name).join(', ') : 'niemand sonst',
-    preview: s.aktiveNutzer.length
-      ? s.aktiveNutzer.map(u => drow(u.name, new Date(u.lastSeen).toLocaleTimeString('de-DE'))).join('')
-      : '<p class="text-gray-400 text-xs py-2">Aktuell sonst niemand aktiv.</p>'
-  }));
-
   document.getElementById('dashboardGrid').innerHTML = tiles.join('');
+
+  // ---- Wetter: eigene, größere/zentrierte Karte oberhalb des Kachelrasters (statt Teil
+  // davon) - Platzhalter, wird gleich unten asynchron befüllt (externe API). Ein Klick
+  // irgendwo auf die Karte öffnet direkt die volle Detailansicht.
+  document.getElementById('dashboardWetterCard').innerHTML = `
+    <div class="dash-wetter-card">
+      <div class="dash-tile-icon" id="dashIcon-wetter">${lucideIcon('cloud-sun')}</div>
+      <div class="dash-tile-title">Wetter</div>
+      <div class="dash-tile-value" id="dashVal-wetter">Lädt …</div>
+      <div class="dash-tile-sub" id="dashSub-wetter"></div>
+      <div class="dash-tile-preview" id="dashDet-wetter"><p class="text-gray-400 text-xs py-2">Wetterdaten werden geladen …</p></div>
+    </div>`;
+  document.getElementById('dashboardWetterCard').querySelector('.dash-wetter-card').addEventListener('click', () => openDashTileDetail('wetter'));
+
   lucide.createIcons();
 
   loadWetterBox();
@@ -863,6 +905,22 @@ function weatherIcon(code) {
   if ([71, 73, 75, 77, 85, 86].includes(code)) return '🌨️';
   if ([95, 96, 99].includes(code)) return '⛈️';
   return '🌡️';
+}
+
+const WEATHER_LABELS = {
+  0: 'Klar', 1: 'Überwiegend klar', 2: 'Teilweise bewölkt', 3: 'Bedeckt',
+  45: 'Nebel', 48: 'Reifnebel',
+  51: 'Leichter Nieselregen', 53: 'Nieselregen', 55: 'Starker Nieselregen',
+  56: 'Gefrierender Niesel', 57: 'Starker gefrierender Niesel',
+  61: 'Leichter Regen', 63: 'Regen', 65: 'Starker Regen',
+  66: 'Gefrierender Regen', 67: 'Starker gefrierender Regen',
+  71: 'Leichter Schneefall', 73: 'Schneefall', 75: 'Starker Schneefall', 77: 'Schneegriesel',
+  80: 'Leichte Regenschauer', 81: 'Regenschauer', 82: 'Starke Regenschauer',
+  85: 'Leichte Schneeschauer', 86: 'Starke Schneeschauer',
+  95: 'Gewitter', 96: 'Gewitter mit Hagel', 99: 'Starkes Gewitter mit Hagel'
+};
+function weatherLabel(code) {
+  return WEATHER_LABELS[code] || '';
 }
 
 // Wetter/Boden-Übersicht für den Koordinaten-Mittelwert der Dauergrünwiesen (Open-Meteo,
@@ -942,6 +1000,10 @@ async function loadWetterBox() {
     for (let i = heuteIdx; i < Math.min(heuteIdx + 7, tage.length); i++) {
       naechsten7.push({ datum: tage[i], code: wettercodeTage[i], regenWk: niederschlagWk[i], regenMm: niederschlag[i], sonne: sonnenstunden[i], tempMax: tempMax[i], tempMin: tempMin[i] });
     }
+
+    // Für die aufgeklappte Detailansicht (Klick auf die Wetter-Karte) merken - die
+    // Kachel selbst zeigt nur eine kompakte Vorschau.
+    state.wetterDetail = { aktuell: aktuellData && aktuellData.current, naechsten7, maehfenster, niederschlag7, verdunstung7 };
 
     const jetztCode = aktuellData && aktuellData.current ? aktuellData.current.weather_code : null;
     if (iconEl && jetztCode !== null && jetztCode !== undefined) iconEl.textContent = weatherIcon(jetztCode);

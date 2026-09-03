@@ -299,20 +299,22 @@ async function logActivity(user, aktion, details) {
   }
 }
 
-async function activeUsersFn() {
-  const cutoff = new Date(Date.now() - 15 * 60 * 1000).toISOString();
-  const { data, error } = await supabaseClient
-    .from('aktivitaets_log')
-    .select('user_email, user_name, ts')
-    .gte('ts', cutoff)
-    .order('ts', { ascending: false })
-    .limit(300);
-  if (error) throw new Error(error.message);
-  const byUser = {};
-  (data || []).forEach(r => {
-    if (!byUser[r.user_email]) byUser[r.user_email] = { email: r.user_email, name: r.user_name, lastSeen: r.ts };
+// Für jeden freigeschalteten Nutzer den letzten bekannten Aktivitäts-Zeitpunkt (egal wie
+// lange her) plus ein "gerade aktiv"-Flag (innerhalb der letzten 15 Minuten) - für die
+// kompakte Anzeige in der Seitenleiste ("wer ist gerade da, wann war der andere zuletzt da").
+async function allUserActivityFn() {
+  const { data: profiles, error: e0 } = await supabaseClient.from('profiles').select('email, name').eq('status', 'Aktiv').order('name');
+  if (e0) throw new Error(e0.message);
+  const { data: logs, error: e1 } = await supabaseClient
+    .from('aktivitaets_log').select('user_email, ts').order('ts', { ascending: false }).limit(500);
+  if (e1) throw new Error(e1.message);
+  const letzteAktivitaet = {};
+  (logs || []).forEach(l => { if (!(l.user_email in letzteAktivitaet)) letzteAktivitaet[l.user_email] = l.ts; });
+  const cutoff = Date.now() - 15 * 60 * 1000;
+  return (profiles || []).map(p => {
+    const lastSeen = letzteAktivitaet[p.email] || null;
+    return { email: p.email, name: p.name, lastSeen, aktivJetzt: !!lastSeen && new Date(lastSeen).getTime() >= cutoff };
   });
-  return Object.values(byUser);
 }
 
 // ============================================================================
@@ -613,8 +615,7 @@ const Api = {
         await logActivity(user, 'Aktiv', payload.context || '');
         return { ok: true };
       }
-      case 'dashboard.summary': return { aktiveNutzer: await activeUsersFn() };
-      case 'dashboard.activeUsers': return activeUsersFn();
+      case 'dashboard.userActivity': return allUserActivityFn();
       case 'betrieb.get': return betriebGetFn();
       case 'betrieb.update': await requireAdmin(); return betriebUpdateFn(payload);
       case 'fruchtfolge.check': return fruchtfolgeCheckFn(payload);

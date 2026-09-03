@@ -78,6 +78,20 @@
   .dash-day .dash-day-icon { font-size: 1.1rem; }
   .dash-day .dash-day-temp { font-size: 0.65rem; color: #1f2937; font-weight: 600; }
 
+  /* Wetter-Karte: bewusst größer/zentriert statt Teil des normalen Kachelrasters -
+     Wetter ist für die Tagesplanung am Hof meist die erste, wichtigste Information. */
+  .dash-wetter-card {
+    background: white; border-radius: 1.25rem; box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+    padding: 1.5rem; text-align: center; cursor: pointer; -webkit-tap-highlight-color: transparent;
+  }
+  .dash-wetter-card:hover { box-shadow: 0 4px 14px rgba(0,0,0,0.14); }
+  .dash-wetter-card .dash-tile-icon { font-size: 3rem; }
+  .dash-wetter-card .dash-tile-title { font-size: 0.85rem; }
+  .dash-wetter-card .dash-tile-value { font-size: 2rem; }
+  .dash-wetter-card .dash-tile-sub { font-size: 0.8rem; margin-top: 0.15rem; }
+  .dash-wetter-card .dash-tile-preview { margin-top: 0.75rem; font-size: 0.75rem; overflow: visible; }
+  .dash-wetter-card .dash-day-strip { justify-content: center; }
+
   /* Ab Tablet/Desktop: mehr Spalten und größere (weiterhin quadratische) Kacheln -
      der Bildschirm wird ausgenutzt, um möglichst viel auf einen Blick zu zeigen. */
   @media (min-width: 640px) {
@@ -130,7 +144,6 @@
       <span class="text-lg font-bold tracking-tight" id="hofNameLabel">Hof-Management</span>
     </div>
     <div class="flex items-center gap-3 text-sm">
-      <div id="activeUsersLabel" class="hidden sm:block opacity-90"></div>
       <button id="btnAktualisieren" title="Alle Daten neu laden" class="flex items-center gap-1.5 bg-white/10 hover:bg-white/20 px-3 py-1.5 rounded-lg transition-colors">
         <i data-lucide="refresh-cw" class="btn-refresh w-4 h-4"></i> <span class="hidden sm:inline">Aktualisieren</span>
       </button>
@@ -165,6 +178,7 @@
       <button data-section="finanzen" class="nav-btn flex items-center gap-3 text-left px-3 py-2 rounded hover:bg-green-100"><i data-lucide="wallet" class="w-[18px] h-[18px] shrink-0"></i> Finanzen</button>
       <hr class="my-2">
       <button data-section="einstellungen" class="nav-btn flex items-center gap-3 text-left px-3 py-2 rounded hover:bg-green-100"><i data-lucide="settings" class="w-[18px] h-[18px] shrink-0"></i> Einstellungen</button>
+      <div id="sidebarAktiveNutzer" class="mt-auto pt-3 border-t text-xs text-gray-400 space-y-0.5"></div>
     </nav>
 
     <!-- Content -->
@@ -173,6 +187,7 @@
       <!-- DASHBOARD -->
       <section id="section-dashboard" class="app-section space-y-4">
         <h2 class="text-2xl font-extrabold text-gray-800 tracking-tight flex items-center gap-2"><i data-lucide="layout-dashboard" class="w-6 h-6 text-green-700"></i> Dashboard</h2>
+        <div id="dashboardWetterCard" class="max-w-md mx-auto"></div>
         <div id="dashboardGrid"></div>
       </section>
 
