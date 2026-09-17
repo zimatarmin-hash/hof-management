@@ -124,6 +124,11 @@
   <p id="loginError" class="text-red-600 text-sm max-w-md text-center"></p>
 </div>
 
+<!-- ===================== OFFLINE-HINWEIS ===================== -->
+<div id="offlineBanner" class="hidden fixed top-0 inset-x-0 z-[10000] bg-amber-600 text-white text-center text-sm py-1.5 px-2">
+  ⚠️ Offline - zeige den zuletzt gespeicherten Stand
+</div>
+
 <!-- ===================== LADE-OVERLAY ===================== -->
 <div id="loadingOverlay" class="hidden fixed inset-0 bg-white/95 backdrop-blur-sm z-[100] flex flex-col items-center justify-center gap-4">
   <div class="w-14 h-14 rounded-2xl bg-gradient-to-br from-green-700 to-emerald-500 shadow-lg flex items-center justify-center text-white"><i data-lucide="tractor" class="w-7 h-7"></i></div>
@@ -197,6 +202,7 @@
           <h2 class="text-2xl font-extrabold text-gray-800 tracking-tight flex items-center gap-2"><i data-lucide="map" class="w-6 h-6 text-green-700"></i> Flächen &amp; Fruchtfolge</h2>
           <div class="flex gap-2 flex-wrap">
             <button id="btnWerkzeugeToggle" class="bg-gray-700 text-white px-3 py-2 rounded shadow hover:bg-gray-800 text-sm">🛠️ Karten-Werkzeuge</button>
+            <button id="btnJahresHistorie" class="bg-gray-700 text-white px-3 py-2 rounded shadow hover:bg-gray-800 text-sm">📊 Jahres-Historie</button>
             <button id="btnNeueFlaeche" class="bg-green-700 text-white px-3 py-2 rounded shadow hover:bg-green-800 text-sm">+ Neue Fläche</button>
           </div>
         </div>

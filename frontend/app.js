@@ -445,7 +445,18 @@ window.addEventListener('DOMContentLoaded', () => {
 
   document.getElementById('signOutBtn').onclick = () => Auth.signOut();
   document.getElementById('btnAktualisieren').onclick = () => refreshAll();
+
+  aktualisiereOfflineBanner();
+  window.addEventListener('online', aktualisiereOfflineBanner);
+  window.addEventListener('offline', aktualisiereOfflineBanner);
 });
+
+// Zeigt ein Banner, solange das Gerät ganz ohne Verbindung ist (nicht nur langsam) -
+// ohne das sieht man beim Feld-/Stalleinsatz ohne Empfang nur den letzten Cache-Stand,
+// ohne zu wissen, dass gerade nichts Neues geladen werden kann.
+function aktualisiereOfflineBanner() {
+  document.getElementById('offlineBanner').classList.toggle('hidden', navigator.onLine);
+}
 
 async function onSignedIn(profile) {
   document.getElementById('loginError').textContent = '';
@@ -608,76 +619,98 @@ function openDashDetailWithSection(title, tileId, renderFn) {
   });
 }
 
-function todoRowHtml(t) {
-  return `<div class="flex items-center gap-2 py-1.5 border-b last:border-b-0${t.Erledigt ? ' opacity-50' : ''}">
-    <input type="checkbox" class="todo-check w-4 h-4 shrink-0" data-id="${t.ID}" ${t.Erledigt ? 'checked' : ''}>
-    <span class="flex-1 text-sm ${t.Erledigt ? 'line-through text-gray-400' : ''}">${t.Text}</span>
-    ${!t.Erledigt ? `<button data-id="${t.ID}" class="todo-prio-up text-gray-400 hover:text-gray-700 px-1" title="Priorität erhöhen">▲</button>
-    <button data-id="${t.ID}" class="todo-prio-down text-gray-400 hover:text-gray-700 px-1" title="Priorität senken">▼</button>` : ''}
-    <span title="${t.Prioritaet || 'Mittel'}">${TODO_PRIORITAET_ICONS[t.Prioritaet] || '🟡'}</span>
-    <button data-id="${t.ID}" class="todo-delete text-red-400 hover:text-red-600 px-1">✕</button>
+// ---- To-Do als Kanban-Board (Backlog / Zu erledigen / In Arbeit / Erledigt) ----
+const TODO_STATUS_SPALTEN = ['Backlog', 'Zu erledigen', 'In Arbeit', 'Erledigt'];
+
+function todoKartenHtml(t) {
+  const idx = TODO_STATUS_SPALTEN.indexOf(t.Status);
+  return `<div class="bg-white border rounded-lg shadow-sm p-2 mb-2 text-sm">
+    <div class="flex items-start gap-1">
+      <button data-id="${t.ID}" class="todo-prio-cycle shrink-0" title="Priorität: ${t.Prioritaet || 'Mittel'} (klicken zum Ändern)">${TODO_PRIORITAET_ICONS[t.Prioritaet] || '🟡'}</button>
+      <span class="flex-1 break-words">${t.Text}</span>
+      <button data-id="${t.ID}" class="todo-delete text-red-400 hover:text-red-600 shrink-0">✕</button>
+    </div>
+    <div class="flex justify-between text-xs mt-1">
+      <button data-id="${t.ID}" class="todo-move-back text-gray-400 hover:text-gray-700${idx <= 0 ? ' invisible' : ''}">◀ Zurück</button>
+      <button data-id="${t.ID}" class="todo-move-forward text-gray-400 hover:text-gray-700${idx >= TODO_STATUS_SPALTEN.length - 1 ? ' invisible' : ''}">Weiter ▶</button>
+    </div>
   </div>`;
 }
 
-function renderTodoListe(container) {
-  const alle = state.dashboardData.todos || [];
-  const offen = alle.filter(t => !t.Erledigt).sort((a, b) => (TODO_PRIORITAET_ORDER[a.Prioritaet] ?? 1) - (TODO_PRIORITAET_ORDER[b.Prioritaet] ?? 1));
-  const erledigt = alle.filter(t => t.Erledigt);
+// Ältere Aufgaben (vor Einführung des Kanban-Boards) hatten nur "Erledigt" statt "Status" -
+// hier einmalig sauber auf eine der vier Spalten abbilden statt sie verschwinden zu lassen.
+function todoStatus(t) {
+  return TODO_STATUS_SPALTEN.includes(t.Status) ? t.Status : (t.Erledigt ? 'Erledigt' : 'Zu erledigen');
+}
 
+function renderTodoKanban(container) {
+  const alle = state.dashboardData.todos || [];
   container.innerHTML = `
     <div class="flex gap-2 mb-3">
       <input id="todoNeuText" type="text" placeholder="Neue Aufgabe eintippen …" class="flex-1 border rounded px-3 py-2 text-sm">
       <button id="todoNeuAdd" class="bg-green-700 text-white px-3 py-2 rounded text-sm shrink-0">+ Hinzufügen</button>
     </div>
-    <div>${offen.map(todoRowHtml).join('') || '<p class="text-gray-400 text-sm py-2">Keine offenen Aufgaben.</p>'}</div>
-    ${erledigt.length ? `<div class="mt-4 pt-3 border-t">
-      <div class="text-xs text-gray-400 mb-1">Erledigt (${erledigt.length})</div>
-      <div>${erledigt.map(todoRowHtml).join('')}</div>
-    </div>` : ''}`;
+    <div class="flex gap-3 overflow-x-auto pb-2">
+      ${TODO_STATUS_SPALTEN.map(spalte => {
+        const karten = alle.filter(t => todoStatus(t) === spalte)
+          .sort((a, b) => (TODO_PRIORITAET_ORDER[a.Prioritaet] ?? 1) - (TODO_PRIORITAET_ORDER[b.Prioritaet] ?? 1));
+        return `<div class="bg-gray-50 rounded-lg p-2 shrink-0" style="width:200px">
+          <div class="text-xs font-semibold text-gray-500 mb-2">${spalte} (${karten.length})</div>
+          <div>${karten.map(todoKartenHtml).join('') || '<p class="text-gray-300 text-xs py-2">leer</p>'}</div>
+        </div>`;
+      }).join('')}
+    </div>`;
 
   const neuHinzufuegen = async () => {
     const feld = document.getElementById('todoNeuText');
     const text = feld.value.trim();
     if (!text) return;
-    const saved = await safeCall('todos.create', { Text: text, Prioritaet: 'Mittel', Erledigt: false }, 'Aufgabe hinzugefügt.');
+    const saved = await safeCall('todos.create', { Text: text, Prioritaet: 'Mittel', Status: 'Zu erledigen', Erledigt: false }, 'Aufgabe hinzugefügt.');
     cacheUpsert('todos.list', saved);
-    renderTodoListe(container);
+    state.dashboardData.todos = listCache['todos.list'];
+    renderTodoKanban(container);
   };
   container.querySelector('#todoNeuAdd').onclick = neuHinzufuegen;
   container.querySelector('#todoNeuText').addEventListener('keydown', (e) => { if (e.key === 'Enter') neuHinzufuegen(); });
 
-  container.querySelectorAll('.todo-check').forEach(cb => cb.onchange = async () => {
-    const saved = await safeCall('todos.update', { id: cb.dataset.id, Erledigt: cb.checked });
-    cacheUpsert('todos.list', saved);
-    renderTodoListe(container);
-  });
-  container.querySelectorAll('.todo-prio-up').forEach(b => b.onclick = () => aendereTodoPrioritaet(b.dataset.id, -1, container));
-  container.querySelectorAll('.todo-prio-down').forEach(b => b.onclick = () => aendereTodoPrioritaet(b.dataset.id, 1, container));
+  container.querySelectorAll('.todo-prio-cycle').forEach(b => b.onclick = () => zykleTodoPrioritaet(b.dataset.id, container));
+  container.querySelectorAll('.todo-move-back').forEach(b => b.onclick = () => verschiebeTodoStatus(b.dataset.id, -1, container));
+  container.querySelectorAll('.todo-move-forward').forEach(b => b.onclick = () => verschiebeTodoStatus(b.dataset.id, 1, container));
   container.querySelectorAll('.todo-delete').forEach(b => b.onclick = async () => {
     await safeCall('todos.delete', { id: b.dataset.id }, 'Gelöscht.');
     cacheRemove('todos.list', b.dataset.id);
     state.dashboardData.todos = listCache['todos.list'];
-    renderTodoListe(container);
+    renderTodoKanban(container);
   });
 }
 
-// Verschiebt eine Aufgabe eine Prioritätsstufe nach oben (-1) oder unten (+1).
-async function aendereTodoPrioritaet(id, delta, container) {
+// Verschiebt eine Aufgabe eine Kanban-Spalte nach vorne (-1) oder hinten (+1).
+async function verschiebeTodoStatus(id, delta, container) {
+  const t = (state.dashboardData.todos || []).find(x => x.ID === id);
+  if (!t) return;
+  const idx = Math.min(TODO_STATUS_SPALTEN.length - 1, Math.max(0, TODO_STATUS_SPALTEN.indexOf(todoStatus(t)) + delta));
+  const neuerStatus = TODO_STATUS_SPALTEN[idx];
+  const saved = await safeCall('todos.update', { id, Status: neuerStatus, Erledigt: neuerStatus === 'Erledigt' });
+  cacheUpsert('todos.list', saved);
+  state.dashboardData.todos = listCache['todos.list'];
+  renderTodoKanban(container);
+}
+
+async function zykleTodoPrioritaet(id, container) {
   const t = (state.dashboardData.todos || []).find(x => x.ID === id);
   if (!t) return;
   const stufen = ['Hoch', 'Mittel', 'Niedrig'];
-  let idx = stufen.indexOf(t.Prioritaet);
-  if (idx < 0) idx = 1;
-  idx = Math.min(stufen.length - 1, Math.max(0, idx + delta));
+  const idx = (Math.max(0, stufen.indexOf(t.Prioritaet)) + 1) % stufen.length;
   const saved = await safeCall('todos.update', { id, Prioritaet: stufen[idx] });
   cacheUpsert('todos.list', saved);
-  renderTodoListe(container);
+  state.dashboardData.todos = listCache['todos.list'];
+  renderTodoKanban(container);
 }
 
 function openDashTileDetail(id) {
   const d = state.dashboardData || {};
   if (id === 'todos') {
-    openDashDetailWithSection('To-Do', id, (inner) => renderTodoListe(inner));
+    openDashDetailWithSection('To-Do', id, (inner) => renderTodoKanban(inner));
   } else if (id === 'tiere') {
     openDashDetailWithSection('Tiere', id, (inner) => {
       renderTable(inner,
@@ -793,12 +826,16 @@ async function loadDashboard() {
 
   const tiles = [];
 
-  const todosOffen = todos.filter(t => !t.Erledigt).sort((a, b) => (TODO_PRIORITAET_ORDER[a.Prioritaet] ?? 1) - (TODO_PRIORITAET_ORDER[b.Prioritaet] ?? 1));
+  // Nur eine kurze Übersicht auf dem Dashboard - das volle Kanban-Board (Backlog/Zu
+  // erledigen/In Arbeit/Erledigt) gibt es erst beim Öffnen der Kachel (Pfeil-Klick).
+  const todosProSpalte = TODO_STATUS_SPALTEN.map(s => ({ status: s, anzahl: todos.filter(t => todoStatus(t) === s).length }));
+  const todosErledigtAnzahl = todosProSpalte.find(s => s.status === 'Erledigt').anzahl;
+  const todosOffenAnzahl = todos.length - todosErledigtAnzahl;
   tiles.push(dashTileHtml({
-    id: 'todos', icon: lucideIcon('list-checks'), title: 'To-Do', value: todosOffen.length, sub: `${todos.length - todosOffen.length} erledigt`, expandable: true,
-    preview: todosOffen.length
-      ? todosOffen.slice(0, 8).map(t => drow(`${TODO_PRIORITAET_ICONS[t.Prioritaet] || '🟡'} ${t.Text}`, '')).join('')
-      : '<p class="text-gray-400 text-xs py-2">Keine offenen Aufgaben.</p>'
+    id: 'todos', icon: lucideIcon('list-checks'), title: 'To-Do', value: todosOffenAnzahl, sub: `${todosErledigtAnzahl} erledigt`, expandable: true,
+    preview: todos.length
+      ? todosProSpalte.map(s => drow(s.status, s.anzahl)).join('')
+      : '<p class="text-gray-400 text-xs py-2">Keine Aufgaben erfasst.</p>'
   }));
 
   tiles.push(dashTileHtml({
@@ -1388,6 +1425,19 @@ function flaechePopupHtml(f) {
       html += '<br>' + schnitteJahr.map(s => `${s.SchnittNummer}. Schnitt: ${new Date(s.Datum).toLocaleDateString('de-DE')}${s.ErtragsMenge ? ` (${s.ErtragsMenge} ${s.ErtragsEinheit || ''})` : ''}`).join('<br>');
     }
   }
+  if (f.Nutzungsart === 'Ackerland') {
+    const jahr = new Date().getFullYear();
+    const zuweisung = (state.fruchtfolge || []).find(ff => ff.FlaecheID === f.ID && Number(ff.Jahr) === jahr);
+    html += `<br><br>🌾 <b>Fruchtfolge ${jahr}</b>`;
+    if (zuweisung) {
+      html += `<br>${zuweisung.Kultur}`;
+      if (zuweisung.Aussaatdatum) html += ` · Aussaat: ${new Date(zuweisung.Aussaatdatum).toLocaleDateString('de-DE')}`;
+      if (zuweisung.Erntedatum) html += `<br>Ernte: ${new Date(zuweisung.Erntedatum).toLocaleDateString('de-DE')}${zuweisung.ErtragsMenge ? ` (${zuweisung.ErtragsMenge} ${zuweisung.ErtragsEinheit || ''})` : ''}`;
+      else if (zuweisung.ErtragsMenge) html += ` · Ertrag: ${zuweisung.ErtragsMenge} ${zuweisung.ErtragsEinheit || ''}`;
+    } else {
+      html += '<br>noch keine Kultur zugewiesen';
+    }
+  }
   // Schnellerfassung direkt aus dem Popup - je Nutzungsart die jeweils passenden Aktionen
   const aktionen = [];
   if (f.Nutzungsart === 'Dauerwiese' || f.Nutzungsart === 'Wechselwiese') {
@@ -1766,6 +1816,7 @@ async function loadFlaechenSection() {
   });
 
   document.getElementById('btnNeueFlaeche').onclick = () => { state.aktuelleZeichnungGeoJSON = null; openFlaecheModal(); };
+  document.getElementById('btnJahresHistorie').onclick = () => openJahresHistorieModal();
 }
 
 async function openFruchtfolgePanel(flaeche) {
@@ -1796,7 +1847,13 @@ async function reloadFruchtfolgeTable() {
     rows,
     {
       onEdit: (row) => openFruchtfolgeModal(state.aktiveFlaecheFuerFruchtfolge, row),
-      onDelete: async (row) => { await safeCall('fruchtfolge.delete', { id: row.ID }, 'Eintrag gelöscht.'); cacheRemove('fruchtfolge.list', row.ID); await reloadFruchtfolgeTable(); }
+      onDelete: async (row) => {
+        const verknuepft = await findFuttermittelbewegungZu('FruchtfolgeID', row.ID);
+        await safeCall('fruchtfolge.delete', { id: row.ID }, 'Eintrag gelöscht.');
+        cacheRemove('fruchtfolge.list', row.ID);
+        await loeseFuttermittelErnteBuchungAuf(verknuepft);
+        await reloadFruchtfolgeTable();
+      }
     });
 }
 
@@ -1863,11 +1920,73 @@ function openFruchtfolgeModal(flaeche, initial = {}) {
         await wandereErtragInFuttermittel({
           Bezeichnung: values.Kultur, Kategorie: values.Kultur, Einheit: values.ErtragsEinheit,
           Menge: values.ErtragsMenge, HerkunftFlaecheID: flaeche.ID, Datum: values.Erntedatum,
-          Notiz: `Ernte ${values.Jahr} ${flaeche.Name}`
+          Notiz: `Ernte ${values.Jahr} ${flaeche.Name}`, FruchtfolgeID: saved.ID
         });
       }
       await reloadFruchtfolgeTable();
     }
+  });
+}
+
+// ============================================================================
+// JAHRES-HISTORIE (Schnitte + Fruchtfolge-Ernten aller Flächen, nach Jahr/Fläche)
+// ============================================================================
+// Nichts wird je gelöscht/zurückgesetzt - Kartenpopup und Feldbuch zeigen ohnehin
+// automatisch nur das laufende Jahr (siehe flaechePopupHtml/reloadFeldbuchTabellen),
+// "neu starten" passiert also von selbst mit dem Kalenderjahr. Diese Ansicht ist der
+// dauerhafte Rückblick über alle Jahre und Flächen hinweg.
+function sammleJahresHistorie() {
+  const eintraege = [];
+  (state.schnitte || []).forEach(s => {
+    if (!s.Datum) return;
+    const flaeche = state.flaechen.find(f => f.ID === s.FlaecheID);
+    eintraege.push({
+      jahr: new Date(s.Datum).getFullYear(),
+      flaeche: flaeche ? flaeche.Name : '(gelöschte Fläche)',
+      was: s.Erntetyp || 'Schnitt', menge: Number(s.ErtragsMenge || 0), einheit: s.ErtragsEinheit || ''
+    });
+  });
+  (state.fruchtfolge || []).forEach(ff => {
+    if (!ff.Jahr) return;
+    const flaeche = state.flaechen.find(f => f.ID === ff.FlaecheID);
+    eintraege.push({
+      jahr: Number(ff.Jahr),
+      flaeche: flaeche ? flaeche.Name : '(gelöschte Fläche)',
+      was: ff.Kultur, menge: Number(ff.ErtragsMenge || 0), einheit: ff.ErtragsEinheit || ''
+    });
+  });
+
+  const proJahr = {};
+  eintraege.forEach(e => {
+    if (!proJahr[e.jahr]) proJahr[e.jahr] = {};
+    if (!proJahr[e.jahr][e.flaeche]) proJahr[e.jahr][e.flaeche] = {};
+    const key = `${e.was}|${e.einheit}`;
+    if (!proJahr[e.jahr][e.flaeche][key]) proJahr[e.jahr][e.flaeche][key] = { was: e.was, einheit: e.einheit, menge: 0, anzahl: 0 };
+    proJahr[e.jahr][e.flaeche][key].menge += e.menge;
+    proJahr[e.jahr][e.flaeche][key].anzahl += 1;
+  });
+  return proJahr;
+}
+
+function openJahresHistorieModal() {
+  openDetailModal('Jahres-Historie: Ernten & Schnitte', (body) => {
+    const proJahr = sammleJahresHistorie();
+    const jahre = Object.keys(proJahr).map(Number).sort((a, b) => b - a);
+    if (!jahre.length) { body.innerHTML = '<p class="text-gray-400 text-sm py-2">Noch keine Ernten/Schnitte erfasst.</p>'; return; }
+
+    body.innerHTML = jahre.map(jahr => {
+      const flaechenNamen = Object.keys(proJahr[jahr]).sort();
+      const zeilen = flaechenNamen.map(name => {
+        const posten = Object.values(proJahr[jahr][name])
+          .map(p => `${p.was}: <b>${p.menge.toFixed(1)} ${p.einheit}</b>${p.anzahl > 1 ? ` (${p.anzahl}×)` : ''}`)
+          .join(' · ');
+        return `<tr class="border-b"><td class="py-1.5 pr-4 align-top">${name}</td><td class="py-1.5 align-top">${posten}</td></tr>`;
+      }).join('');
+      return `<div class="mb-4">
+        <div class="font-semibold text-gray-700 mb-1">${jahr}</div>
+        <table class="min-w-full text-sm"><tbody>${zeilen}</tbody></table>
+      </div>`;
+    }).join('');
   });
 }
 
@@ -2038,7 +2157,15 @@ async function reloadFeldbuchTabellen() {
       { label: 'Ertrag', format: r => `${r.ErtragsMenge || ''} ${r.ErtragsEinheit || ''}` }
     ],
     schnitte.filter(s => s.FlaecheID === flaecheId).sort((a, b) => new Date(b.Datum) - new Date(a.Datum)),
-    { onDelete: async (row) => { await safeCall('schnitte.delete', { id: row.ID }, 'Gelöscht.'); cacheRemove('schnitte.list', row.ID); await reloadFeldbuchTabellen(); } });
+    {
+      onDelete: async (row) => {
+        const verknuepft = await findFuttermittelbewegungZu('SchnittID', row.ID);
+        await safeCall('schnitte.delete', { id: row.ID }, 'Gelöscht.');
+        cacheRemove('schnitte.list', row.ID);
+        await loeseFuttermittelErnteBuchungAuf(verknuepft);
+        await reloadFeldbuchTabellen();
+      }
+    });
 
   renderTable(document.getElementById('duengungTable'),
     [
@@ -2070,7 +2197,7 @@ function openSchnittModal(flaeche) {
         await wandereErtragInFuttermittel({
           Bezeichnung: values.Erntetyp || 'Heu', Kategorie: values.Erntetyp || 'Heu', Einheit: values.ErtragsEinheit,
           Menge: values.ErtragsMenge, HerkunftFlaecheID: flaeche.ID, Datum: values.Datum,
-          Notiz: `${values.SchnittNummer}. Schnitt ${flaeche.Name}`
+          Notiz: `${values.SchnittNummer}. Schnitt ${flaeche.Name}`, SchnittID: saved.ID
         });
       }
       await reloadFeldbuchTabellen();
@@ -2679,8 +2806,8 @@ const FUTTERMITTEL_EINHEITEN = ['Ballen', 'kg', 'Tonnen'];
 
 // Verbucht einen Ernteertrag (Schnitt oder Fruchtfolge-Ernte) automatisch als Zugang
 // im passenden Futtermittel-Bestand - legt den Bestand bei Bedarf neu an.
-async function wandereErtragInFuttermittel({ Bezeichnung, Kategorie, Einheit, Menge, HerkunftFlaecheID, Datum, Notiz }) {
-  if (!Menge || Number(Menge) <= 0) return;
+async function wandereErtragInFuttermittel({ Bezeichnung, Kategorie, Einheit, Menge, HerkunftFlaecheID, Datum, Notiz, SchnittID, FruchtfolgeID }) {
+  if (!Menge || Number(Menge) <= 0) return null;
   // Für den Futtermittel-Bestand zählen wir nur noch in generischen Einheiten (Ballen/kg/Tonnen) -
   // die feinere Unterscheidung Rundballen/Quaderballen bleibt im Feldbuch-Datensatz erhalten.
   if (Einheit === 'Rundballen' || Einheit === 'Quaderballen') Einheit = 'Ballen';
@@ -2690,14 +2817,16 @@ async function wandereErtragInFuttermittel({ Bezeichnung, Kategorie, Einheit, Me
     eintrag = await safeCall('futtermittel.create', { Bezeichnung, Kategorie: Kategorie || 'Sonstiges', Einheit, BestandAktuell: 0 });
     cacheUpsert('futtermittel.list', eintrag);
   }
-  await safeCall('futtermittelbewegungen.create', {
+  const bewegung = await safeCall('futtermittelbewegungen.create', {
     FuttermittelID: eintrag.ID, Datum: Datum || new Date().toISOString().slice(0, 10),
-    Typ: 'Zugang (Ernte)', Menge, HerkunftFlaecheID: HerkunftFlaecheID || '', Notiz: Notiz || ''
+    Typ: 'Zugang (Ernte)', Menge, HerkunftFlaecheID: HerkunftFlaecheID || '', Notiz: Notiz || '',
+    SchnittID: SchnittID || '', FruchtfolgeID: FruchtfolgeID || ''
   });
   invalidateCache('futtermittelbewegungen.list');
   const aktualisiert = await safeCall('futtermittel.update', { id: eintrag.ID, BestandAktuell: Number(eintrag.BestandAktuell || 0) + Number(Menge) });
   cacheUpsert('futtermittel.list', aktualisiert);
   toast(`${Menge} ${Einheit || ''} ${Bezeichnung} zu Futtermittel hinzugefügt.`);
+  return bewegung;
 }
 
 const FUTTERMITTEL_ICONS = { Heu: '🌾', Silage: '🌱', Grummet: '🌿', Silomais: '🌽', Kraftfutter: '🥣', Stroh: '🍂', Sonstiges: '📦' };
@@ -2810,6 +2939,51 @@ function futtermittelbewegungVorzeichen(typ) {
   return typ && typ.indexOf('Zugang') === 0 ? 1 : -1;
 }
 
+// ---- Verknüpfung Futtermittel-Buchung <-> Ernte-Quelle (Schnitt/Fruchtfolge) ----
+// Ein "Zugang (Ernte)" entsteht automatisch aus einem Schnitt (Dauerwiese) oder einer
+// Fruchtfolge-Ernte (Ackerland) - über SchnittID/FruchtfolgeID lässt sich in beide
+// Richtungen nachführen, wenn auf der einen Seite gelöscht/geändert wird.
+async function findFuttermittelbewegungZu(feld, id) {
+  if (!id) return null;
+  invalidateCache('futtermittelbewegungen.list');
+  const alle = await cachedList('futtermittelbewegungen.list');
+  return alle.find(b => b[feld] === id) || null;
+}
+
+// Wird nach dem Löschen einer Futtermittel-Buchung aufgerufen: entfernt bei einer
+// "Zugang (Ernte)"-Buchung auch die Spur auf der Karte, damit die falsche Erfassung
+// komplett verschwindet und sauber neu eingetragen werden kann.
+async function loeseErnteVerknuepfungAuf(bewegung) {
+  if (bewegung.SchnittID) {
+    await safeCall('schnitte.delete', { id: bewegung.SchnittID });
+    cacheRemove('schnitte.list', bewegung.SchnittID);
+  } else if (bewegung.FruchtfolgeID) {
+    const eintrag = (await cachedList('fruchtfolge.list')).find(f => f.ID === bewegung.FruchtfolgeID);
+    if (eintrag) {
+      const saved = await safeCall('fruchtfolge.update', {
+        id: bewegung.FruchtfolgeID, Erntedatum: '', ErtragsMenge: '', ErtragsEinheit: ''
+      });
+      cacheUpsert('fruchtfolge.list', saved);
+    }
+  }
+}
+
+// Umgekehrte Richtung: wird beim Löschen eines Schnitts/einer Fruchtfolge-Ernte direkt
+// im Feldbuch/auf der Karte aufgerufen - löst die verknüpfte Futtermittel-Buchung (falls
+// vorhanden) mit auf und macht den Bestand rückgängig, statt sie verwaist stehen zu lassen.
+async function loeseFuttermittelErnteBuchungAuf(bewegung) {
+  if (!bewegung) return;
+  const futtermittel = await cachedList('futtermittel.list');
+  const eintrag = futtermittel.find(f => f.ID === bewegung.FuttermittelID);
+  await safeCall('futtermittelbewegungen.delete', { id: bewegung.ID });
+  invalidateCache('futtermittelbewegungen.list');
+  if (eintrag) {
+    const neuerBestand = Number(eintrag.BestandAktuell || 0) - futtermittelbewegungVorzeichen(bewegung.Typ) * Number(bewegung.Menge || 0);
+    const saved = await safeCall('futtermittel.update', { id: eintrag.ID, BestandAktuell: neuerBestand });
+    cacheUpsert('futtermittel.list', saved);
+  }
+}
+
 function openFuttermittelVerlauf(bestand) {
   openDetailModal(`Verlauf: ${bestand.Bezeichnung}`, async (body) => {
     const reload = async () => {
@@ -2833,6 +3007,7 @@ function openFuttermittelVerlauf(bestand) {
             const saved = await safeCall('futtermittel.update', { id: bestand.ID, BestandAktuell: neuerBestand });
             cacheUpsert('futtermittel.list', saved);
             bestand.BestandAktuell = saved.BestandAktuell;
+            await loeseErnteVerknuepfungAuf(row);
             await reload();
             await loadFuttermittelSection();
           }
@@ -2866,6 +3041,17 @@ function openFuttermittelBewegungBearbeitenModal(bestand, initial, reload) {
       const bestandSaved = await safeCall('futtermittel.update', { id: bestand.ID, BestandAktuell: neuerBestand });
       cacheUpsert('futtermittel.list', bestandSaved);
       bestand.BestandAktuell = bestandSaved.BestandAktuell;
+
+      // Bei einer aus Schnitt/Fruchtfolge entstandenen Buchung die geänderte Menge auf der
+      // Karte nachziehen, statt dass beide Seiten auseinanderlaufen.
+      if (initial.SchnittID) {
+        const schnittSaved = await safeCall('schnitte.update', { id: initial.SchnittID, ErtragsMenge: values.Menge });
+        cacheUpsert('schnitte.list', schnittSaved);
+      } else if (initial.FruchtfolgeID) {
+        const fruchtfolgeSaved = await safeCall('fruchtfolge.update', { id: initial.FruchtfolgeID, ErtragsMenge: values.Menge });
+        cacheUpsert('fruchtfolge.list', fruchtfolgeSaved);
+      }
+
       await reload();
       await loadFuttermittelSection();
     }

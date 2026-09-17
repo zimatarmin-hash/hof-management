@@ -188,10 +188,11 @@ const ENTITIES = {
   }, bool: ['aktiv'] },
   futtermittelbewegungen: { table: 'futtermittel_bewegungen', felder: {
     ID: 'id', FuttermittelID: 'futtermittel_id', Datum: 'datum', Typ: 'typ', Menge: 'menge',
-    HerkunftFlaecheID: 'herkunft_flaeche_id', Notiz: 'notiz', ErfasstVon: 'erfasst_von', ErfasstAm: 'erfasst_am'
+    HerkunftFlaecheID: 'herkunft_flaeche_id', SchnittID: 'schnitt_id', FruchtfolgeID: 'fruchtfolge_id',
+    Notiz: 'notiz', ErfasstVon: 'erfasst_von', ErfasstAm: 'erfasst_am'
   } },
   todos: { table: 'todos', felder: {
-    ID: 'id', Text: 'text', Prioritaet: 'prioritaet', Erledigt: 'erledigt',
+    ID: 'id', Text: 'text', Prioritaet: 'prioritaet', Erledigt: 'erledigt', Status: 'status',
     ErstelltVon: 'erstellt_von', ErstelltAm: 'erstellt_am'
   }, bool: ['erledigt'] }
 };

@@ -265,12 +265,17 @@ create table public.futtermittel_bewegungen (
   futtermittel_id uuid references public.futtermittel(id) on delete cascade,
   datum date, typ text, menge numeric,
   herkunft_flaeche_id uuid references public.flaechen(id),
+  -- gesetzt, wenn diese Buchung automatisch aus einem Schnitt bzw. einer Fruchtfolge-
+  -- Ernte entstanden ist - erlaubt gegenseitiges Nachführen bei Löschen/Ändern.
+  schnitt_id uuid references public.schnitte(id) on delete set null,
+  fruchtfolge_id uuid references public.fruchtfolge(id) on delete set null,
   notiz text, erfasst_von text, erfasst_am timestamptz default now()
 );
 
 create table public.todos (
   id uuid primary key default gen_random_uuid(),
   text text not null, prioritaet text default 'Mittel', erledigt boolean default false,
+  status text default 'Zu erledigen', -- Backlog | Zu erledigen | In Arbeit | Erledigt (Kanban-Board)
   erstellt_von text, erstellt_am timestamptz default now()
 );
 

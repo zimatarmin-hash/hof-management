@@ -183,8 +183,12 @@
 
   "FuttermittelBewegungen": {
     "beschreibung": "Zu-/Abgangs-Log je Futtermittel-Bestand.",
-    "spalten": ["ID", "FuttermittelID", "Datum", "Typ", "Menge", "HerkunftFlaecheID", "Notiz", "ErfasstVon"],
-    "hinweise": { "Typ": "Zugang (Ernte) | Zugang (Manuell) | Verfüttert | Verkauft | Verlust", "HerkunftFlaecheID": "Nur bei 'Zugang (Ernte)' gesetzt - Referenz auf die erntende Fläche" }
+    "spalten": ["ID", "FuttermittelID", "Datum", "Typ", "Menge", "HerkunftFlaecheID", "SchnittID", "FruchtfolgeID", "Notiz", "ErfasstVon"],
+    "hinweise": {
+      "Typ": "Zugang (Ernte) | Zugang (Manuell) | Verfüttert | Verkauft | Verlust",
+      "HerkunftFlaecheID": "Nur bei 'Zugang (Ernte)' gesetzt - Referenz auf die erntende Fläche",
+      "SchnittID/FruchtfolgeID": "Nur bei automatisch aus einem Schnitt bzw. einer Fruchtfolge-Ernte entstandenen Buchungen gesetzt - erlaubt gegenseitiges Nachführen bei Löschen/Ändern (Karte <-> Futtermittel-Verlauf)"
+    }
   },
 
   "Sessions": {
@@ -193,9 +197,9 @@
   },
 
   "Todos": {
-    "beschreibung": "Einfache To-Do-Liste, oben im Dashboard sichtbar. Gemeinsam für alle Nutzer sichtbar (kein Einzelnutzer-Filter).",
-    "spalten": ["ID", "Text", "Prioritaet", "Erledigt", "ErstelltVon", "ErstelltAm"],
-    "hinweise": { "Prioritaet": "Hoch | Mittel | Niedrig", "Erledigt": "TRUE | FALSE" }
+    "beschreibung": "To-Do-Liste als Kanban-Board (Backlog/Zu erledigen/In Arbeit/Erledigt), Dashboard zeigt nur eine kurze Übersicht. Gemeinsam für alle Nutzer sichtbar (kein Einzelnutzer-Filter).",
+    "spalten": ["ID", "Text", "Prioritaet", "Erledigt", "Status", "ErstelltVon", "ErstelltAm"],
+    "hinweise": { "Prioritaet": "Hoch | Mittel | Niedrig", "Erledigt": "TRUE | FALSE - wird synchron zu Status='Erledigt' gehalten", "Status": "Backlog | Zu erledigen | In Arbeit | Erledigt" }
   },
 
   "AktivitaetsLog": {
