@@ -628,6 +628,7 @@ function todoKartenHtml(t) {
     <div class="flex items-start gap-1">
       <button data-id="${t.ID}" class="todo-prio-cycle shrink-0" title="Priorität: ${t.Prioritaet || 'Mittel'} (klicken zum Ändern)">${TODO_PRIORITAET_ICONS[t.Prioritaet] || '🟡'}</button>
       <span class="flex-1 break-words">${t.Text}</span>
+      <button data-id="${t.ID}" class="todo-edit text-blue-500 hover:text-blue-700 shrink-0" title="Bearbeiten">✏️</button>
       <button data-id="${t.ID}" class="todo-delete text-red-400 hover:text-red-600 shrink-0">✕</button>
     </div>
     <div class="flex justify-between text-xs mt-1">
@@ -650,11 +651,11 @@ function renderTodoKanban(container) {
       <input id="todoNeuText" type="text" placeholder="Neue Aufgabe eintippen …" class="flex-1 border rounded px-3 py-2 text-sm">
       <button id="todoNeuAdd" class="bg-green-700 text-white px-3 py-2 rounded text-sm shrink-0">+ Hinzufügen</button>
     </div>
-    <div class="flex gap-3 overflow-x-auto pb-2">
+    <div class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-3">
       ${TODO_STATUS_SPALTEN.map(spalte => {
         const karten = alle.filter(t => todoStatus(t) === spalte)
           .sort((a, b) => (TODO_PRIORITAET_ORDER[a.Prioritaet] ?? 1) - (TODO_PRIORITAET_ORDER[b.Prioritaet] ?? 1));
-        return `<div class="bg-gray-50 rounded-lg p-2 shrink-0" style="width:200px">
+        return `<div class="bg-gray-50 rounded-lg p-2">
           <div class="text-xs font-semibold text-gray-500 mb-2">${spalte} (${karten.length})</div>
           <div>${karten.map(todoKartenHtml).join('') || '<p class="text-gray-300 text-xs py-2">leer</p>'}</div>
         </div>`;
@@ -676,11 +677,33 @@ function renderTodoKanban(container) {
   container.querySelectorAll('.todo-prio-cycle').forEach(b => b.onclick = () => zykleTodoPrioritaet(b.dataset.id, container));
   container.querySelectorAll('.todo-move-back').forEach(b => b.onclick = () => verschiebeTodoStatus(b.dataset.id, -1, container));
   container.querySelectorAll('.todo-move-forward').forEach(b => b.onclick = () => verschiebeTodoStatus(b.dataset.id, 1, container));
+  container.querySelectorAll('.todo-edit').forEach(b => b.onclick = () => {
+    const t = (state.dashboardData.todos || []).find(x => x.ID === b.dataset.id);
+    if (t) openTodoBearbeitenModal(t, container);
+  });
   container.querySelectorAll('.todo-delete').forEach(b => b.onclick = async () => {
     await safeCall('todos.delete', { id: b.dataset.id }, 'Gelöscht.');
     cacheRemove('todos.list', b.dataset.id);
     state.dashboardData.todos = listCache['todos.list'];
     renderTodoKanban(container);
+  });
+}
+
+function openTodoBearbeitenModal(initial, container) {
+  openFormModal({
+    title: 'Aufgabe bearbeiten',
+    fields: [
+      { key: 'Text', label: 'Aufgabe', required: true },
+      { key: 'Prioritaet', label: 'Priorität', type: 'select', options: ['Hoch', 'Mittel', 'Niedrig'] },
+      { key: 'Status', label: 'Spalte', type: 'select', options: TODO_STATUS_SPALTEN }
+    ],
+    initial: { ...initial, Status: todoStatus(initial) },
+    onSubmit: async (values) => {
+      const saved = await safeCall('todos.update', { id: initial.ID, ...values, Erledigt: values.Status === 'Erledigt' }, 'Aufgabe aktualisiert.');
+      cacheUpsert('todos.list', saved);
+      state.dashboardData.todos = listCache['todos.list'];
+      renderTodoKanban(container);
+    }
   });
 }
 
