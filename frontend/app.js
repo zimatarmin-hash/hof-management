@@ -262,6 +262,7 @@ const formModalForm = document.getElementById('formModalForm');
 const formModalBody = document.getElementById('formModalBody');
 const formModalTitle = document.getElementById('formModalTitle');
 const formModalSaveBtn = document.getElementById('formModalSave');
+const formModalDeleteBtn = document.getElementById('formModalDelete');
 
 document.getElementById('formModalClose').onclick = () => formModal.close();
 document.getElementById('formModalCancel').onclick = () => formModal.close();
@@ -312,10 +313,20 @@ function fieldHtml(f, value) {
 
 let _currentModalOnSubmit = null;
 
-function openFormModal({ title, fields, initial = {}, onSubmit }) {
+function openFormModal({ title, fields, initial = {}, onSubmit, onDelete }) {
   formModalTitle.textContent = title;
   formModalBody.innerHTML = fields.map(f => fieldHtml(f, initial[f.key])).join('');
   _currentModalOnSubmit = onSubmit;
+  formModalDeleteBtn.classList.toggle('hidden', !onDelete);
+  formModalDeleteBtn.onclick = !onDelete ? null : async () => {
+    if (!confirm('Wirklich löschen?')) return;
+    try {
+      await onDelete();
+      formModal.close();
+    } catch (e) {
+      toast(e.message, true);
+    }
+  };
   formModal.showModal();
 }
 
@@ -629,7 +640,6 @@ function todoKartenHtml(t) {
       <button data-id="${t.ID}" class="todo-prio-cycle shrink-0" title="Priorität: ${t.Prioritaet || 'Mittel'} (klicken zum Ändern)">${TODO_PRIORITAET_ICONS[t.Prioritaet] || '🟡'}</button>
       <span class="flex-1 break-words">${t.Text}</span>
       <button data-id="${t.ID}" class="todo-edit text-blue-500 hover:text-blue-700 shrink-0" title="Bearbeiten">✏️</button>
-      <button data-id="${t.ID}" class="todo-delete text-red-400 hover:text-red-600 shrink-0">✕</button>
     </div>
     <div class="flex justify-between text-xs mt-1">
       <button data-id="${t.ID}" class="todo-move-back text-gray-400 hover:text-gray-700${idx <= 0 ? ' invisible' : ''}">◀ Zurück</button>
@@ -681,12 +691,6 @@ function renderTodoKanban(container) {
     const t = (state.dashboardData.todos || []).find(x => x.ID === b.dataset.id);
     if (t) openTodoBearbeitenModal(t, container);
   });
-  container.querySelectorAll('.todo-delete').forEach(b => b.onclick = async () => {
-    await safeCall('todos.delete', { id: b.dataset.id }, 'Gelöscht.');
-    cacheRemove('todos.list', b.dataset.id);
-    state.dashboardData.todos = listCache['todos.list'];
-    renderTodoKanban(container);
-  });
 }
 
 function openTodoBearbeitenModal(initial, container) {
@@ -701,6 +705,12 @@ function openTodoBearbeitenModal(initial, container) {
     onSubmit: async (values) => {
       const saved = await safeCall('todos.update', { id: initial.ID, ...values, Erledigt: values.Status === 'Erledigt' }, 'Aufgabe aktualisiert.');
       cacheUpsert('todos.list', saved);
+      state.dashboardData.todos = listCache['todos.list'];
+      renderTodoKanban(container);
+    },
+    onDelete: async () => {
+      await safeCall('todos.delete', { id: initial.ID }, 'Gelöscht.');
+      cacheRemove('todos.list', initial.ID);
       state.dashboardData.todos = listCache['todos.list'];
       renderTodoKanban(container);
     }
