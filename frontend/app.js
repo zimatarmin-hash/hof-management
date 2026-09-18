@@ -3743,20 +3743,25 @@ function renderFinanzen() {
     <div class="bg-white rounded-xl shadow p-4"><div class="text-gray-500 text-sm">Saldo ${jahr}</div><div class="text-xl font-bold">${euro(erloeseGesamt - kostenGesamt)}</div></div>`;
 
   const bars = [
-    ['Maschinenkosten', sum(maschinenKostenJahr), 'bg-red-500'],
-    ['Tierkosten', sum(tierKostenJahr), 'bg-red-400'],
-    ['Allgemeine Kosten', sum(allgemeineKostenJahr), 'bg-red-300']
+    ['Maschinenkosten', sum(maschinenKostenJahr), 'bg-red-500', 'maschinenkosten'],
+    ['Tierkosten', sum(tierKostenJahr), 'bg-red-400', 'tierkosten'],
+    ['Allgemeine Kosten', sum(allgemeineKostenJahr), 'bg-red-300', 'allgemeinekosten']
   ];
-  if (mitAnschaffung) bars.push(['Maschinen-Anschaffungen', anschaffungSumme, 'bg-red-700']);
-  bars.push(['Tiererlöse', sum(tierErloeseJahr), 'bg-green-500']);
-  bars.push(['Erntevermarktung', sum(erntevermarktungJahr, 'Erloes'), 'bg-green-400']);
+  if (mitAnschaffung) bars.push(['Maschinen-Anschaffungen', anschaffungSumme, 'bg-red-700', 'anschaffungen']);
+  bars.push(['Tiererlöse', sum(tierErloeseJahr), 'bg-green-500', 'tiererloese']);
+  bars.push(['Erntevermarktung', sum(erntevermarktungJahr, 'Erloes'), 'bg-green-400', 'erntevermarktung']);
 
   const max = Math.max(...bars.map(b => b[1]), 1);
-  document.getElementById('finanzenBars').innerHTML = bars.map(([label, val, color]) => `
-    <div>
+  // Jeder Balken ist anklickbar - zeigt die volle, bearbeitbare Liste der Einzelposten,
+  // damit nachvollziehbar ist, was konkret in diese Summe einfließt.
+  document.getElementById('finanzenBars').innerHTML = bars.map(([label, val, color, kategorie]) => `
+    <div class="cursor-pointer hover:opacity-75" data-finanzen-bar="${kategorie}" title="Klicken für Einzelposten">
       <div class="flex justify-between text-sm mb-1"><span>${label}</span><span>${euro(val)}</span></div>
       <div class="w-full bg-gray-100 rounded h-3"><div class="${color} h-3 rounded" style="width:${(val / max * 100).toFixed(1)}%"></div></div>
     </div>`).join('') + `<div class="pt-2 font-bold">Saldo ${jahr}: ${euro(erloeseGesamt - kostenGesamt)}</div>`;
+  document.getElementById('finanzenBars').querySelectorAll('[data-finanzen-bar]').forEach(el => {
+    el.onclick = () => openFinanzenBarDetail(el.dataset.finanzenBar);
+  });
 
   document.getElementById('deckungsbeitragTitel').textContent = 'Deckungsbeitrag je Tier (Lebenszyklus, gesamt)';
   renderTable(document.getElementById('deckungsbeitragTable'),
@@ -3775,7 +3780,10 @@ function renderFinanzen() {
       { label: 'Beleg', format: r => r.BelegURL ? `<a href="${r.BelegURL}" target="_blank" class="text-blue-600 underline">Öffnen</a>` : '' }
     ],
     [...state.allgemeinekosten].sort((a, b) => new Date(b.Datum) - new Date(a.Datum)),
-    { onDelete: async (row) => { await safeCall('allgemeinekosten.delete', { id: row.ID }, 'Gelöscht.'); cacheRemove('allgemeinekosten.list', row.ID); await loadFinanzenSection(); } });
+    {
+      onEdit: (row) => openAllgemeinekostenBearbeitenModal(row, async () => await loadFinanzenSection()),
+      onDelete: async (row) => { await safeCall('allgemeinekosten.delete', { id: row.ID }, 'Gelöscht.'); cacheRemove('allgemeinekosten.list', row.ID); await loadFinanzenSection(); }
+    });
 
   const kategorieFilter = document.getElementById('erntevermarktungKategorieFilter').value;
   const erntevermarktungGefiltert = kategorieFilter
@@ -3788,7 +3796,212 @@ function renderFinanzen() {
       { label: 'Erlös', format: r => euro(r.Erloes) }, { key: 'Beschreibung', label: 'Beschreibung' }
     ],
     [...erntevermarktungGefiltert].sort((a, b) => new Date(b.Datum) - new Date(a.Datum)),
-    { onDelete: async (row) => { await safeCall('erntevermarktung.delete', { id: row.ID }, 'Gelöscht.'); cacheRemove('erntevermarktung.list', row.ID); await loadFinanzenSection(); } });
+    {
+      onEdit: (row) => openErntevermarktungBearbeitenModal(row, async () => await loadFinanzenSection()),
+      onDelete: async (row) => { await safeCall('erntevermarktung.delete', { id: row.ID }, 'Gelöscht.'); cacheRemove('erntevermarktung.list', row.ID); await loadFinanzenSection(); }
+    });
+}
+
+// ---- Klick auf einen Balken in der Kosten-/Erlösübersicht -> volle, bearbeitbare
+// Liste der Einzelposten, die in diese Summe einfließen ----
+function openMaschinenkostenBearbeitenModal(initial, reload) {
+  openFormModal({
+    title: 'Maschinenkosten bearbeiten',
+    fields: [
+      { key: 'Datum', label: 'Datum', type: 'date', required: true },
+      { key: 'Kategorie', label: 'Kategorie', type: 'select', options: ['Reparatur', 'Wartung', 'Kraftstoff', 'Versicherung', 'Sonstiges'] },
+      { key: 'Betrag', label: 'Betrag (€)', type: 'number', step: '0.01', required: true },
+      { key: 'Beschreibung', label: 'Beschreibung' }
+    ],
+    initial,
+    onSubmit: async (values) => {
+      const saved = await safeCall('maschinenkosten.update', { id: initial.ID, ...values }, 'Aktualisiert.');
+      cacheUpsert('maschinenkosten.list', saved);
+      await reload();
+    },
+    onDelete: async () => {
+      await safeCall('maschinenkosten.delete', { id: initial.ID }, 'Gelöscht.');
+      cacheRemove('maschinenkosten.list', initial.ID);
+      await reload();
+      await loadFinanzenSection();
+    }
+  });
+}
+
+function openTierkostenBearbeitenModal(initial, reload) {
+  openFormModal({
+    title: 'Tierkosten bearbeiten',
+    fields: [
+      { key: 'Datum', label: 'Datum', type: 'date', required: true },
+      { key: 'Kategorie', label: 'Kategorie', type: 'select', options: ['Kauf', 'Tierarzt', 'Futter', 'Besamung', 'Sonstiges'] },
+      { key: 'Betrag', label: 'Betrag (€)', type: 'number', step: '0.01', required: true },
+      { key: 'Beschreibung', label: 'Beschreibung' }
+    ],
+    initial,
+    onSubmit: async (values) => {
+      const saved = await safeCall('tierkosten.update', { id: initial.ID, ...values }, 'Aktualisiert.');
+      cacheUpsert('tierkosten.list', saved);
+      await reload();
+    },
+    onDelete: async () => {
+      await safeCall('tierkosten.delete', { id: initial.ID }, 'Gelöscht.');
+      cacheRemove('tierkosten.list', initial.ID);
+      await reload();
+      await loadFinanzenSection();
+    }
+  });
+}
+
+function openTiererloeseBearbeitenModal(initial, reload) {
+  openFormModal({
+    title: 'Tiererlös bearbeiten',
+    fields: [
+      { key: 'Datum', label: 'Datum', type: 'date', required: true },
+      { key: 'Art', label: 'Art', type: 'select', options: ['Verkauf', 'Schlachtung'] },
+      { key: 'Betrag', label: 'Betrag (€)', type: 'number', step: '0.01', required: true },
+      { key: 'Beschreibung', label: 'Beschreibung' }
+    ],
+    initial,
+    onSubmit: async (values) => {
+      const saved = await safeCall('tiererloese.update', { id: initial.ID, ...values }, 'Aktualisiert.');
+      cacheUpsert('tiererloese.list', saved);
+      await reload();
+    },
+    onDelete: async () => {
+      await safeCall('tiererloese.delete', { id: initial.ID }, 'Gelöscht.');
+      cacheRemove('tiererloese.list', initial.ID);
+      await reload();
+      await loadFinanzenSection();
+    }
+  });
+}
+
+function openAllgemeinekostenBearbeitenModal(initial, reload) {
+  openFormModal({
+    title: 'Allgemeine Kosten bearbeiten',
+    fields: [
+      { key: 'Datum', label: 'Datum', type: 'date', required: true },
+      { key: 'Kategorie', label: 'Kategorie', type: 'select', options: ['Treibstoff-Sammelrechnung', 'Versicherung', 'Pacht', 'Strom', 'Beitraege', 'Sonstiges'] },
+      { key: 'MengeLiter', label: 'Menge (Liter, nur bei Treibstoff)', type: 'number', step: '0.1' },
+      { key: 'Betrag', label: 'Betrag (€)', type: 'number', step: '0.01', required: true },
+      { key: 'Beschreibung', label: 'Beschreibung' }
+    ],
+    initial,
+    onSubmit: async (values) => {
+      const saved = await safeCall('allgemeinekosten.update', { id: initial.ID, ...values }, 'Aktualisiert.');
+      cacheUpsert('allgemeinekosten.list', saved);
+      await reload();
+    },
+    onDelete: async () => {
+      await safeCall('allgemeinekosten.delete', { id: initial.ID }, 'Gelöscht.');
+      cacheRemove('allgemeinekosten.list', initial.ID);
+      await reload();
+      await loadFinanzenSection();
+    }
+  });
+}
+
+function openErntevermarktungBearbeitenModal(initial, reload) {
+  openFormModal({
+    title: 'Erntevermarktung bearbeiten',
+    fields: [
+      { key: 'Datum', label: 'Datum', type: 'date', required: true },
+      { key: 'Kategorie', label: 'Kategorie', type: 'select', options: ERNTEVERMARKTUNG_KATEGORIEN },
+      { key: 'Menge', label: 'Menge', type: 'number', step: '0.1' },
+      { key: 'Einheit', label: 'Einheit', type: 'select', options: ['Ballen', 'Tonnen', 'Festmeter', 'Raummeter', 'kg', 'Liter'] },
+      { key: 'Erloes', label: 'Erlös (€)', type: 'number', step: '0.01', required: true },
+      { key: 'Beschreibung', label: 'Beschreibung' }
+    ],
+    initial,
+    onSubmit: async (values) => {
+      const saved = await safeCall('erntevermarktung.update', { id: initial.ID, ...values }, 'Aktualisiert.');
+      cacheUpsert('erntevermarktung.list', saved);
+      await reload();
+    },
+    onDelete: async () => {
+      await safeCall('erntevermarktung.delete', { id: initial.ID }, 'Gelöscht.');
+      cacheRemove('erntevermarktung.list', initial.ID);
+      await reload();
+      await loadFinanzenSection();
+    }
+  });
+}
+
+function openFinanzenBarDetail(kategorie) {
+  const jahr = Number(document.getElementById('finanzenJahr').value);
+  const inJahr = r => jahrVon(r.Datum) === jahr;
+
+  if (kategorie === 'anschaffungen') {
+    openDetailModal('Maschinen-Anschaffungen', (body) => {
+      const rows = state.maschinen.filter(m => jahrVon(m.Anschaffungsdatum) === jahr);
+      renderTable(body,
+        [
+          { key: 'Bezeichnung', label: 'Maschine' },
+          { label: 'Datum', format: r => fmtDate(r.Anschaffungsdatum) },
+          { label: 'Preis', format: r => euro(r.Anschaffungspreis) }
+        ],
+        rows,
+        { onEdit: (m) => { detailModal.close(); openMaschineModal(m); } });
+    });
+    return;
+  }
+
+  const CONFIG = {
+    maschinenkosten: {
+      titel: 'Maschinenkosten', liste: () => state.maschinenkosten.filter(inJahr),
+      spalten: [
+        { label: 'Datum', format: r => fmtDate(r.Datum) },
+        { label: 'Maschine', format: r => (state.maschinen.find(m => m.ID === r.MaschinenID) || {}).Bezeichnung || '-' },
+        { key: 'Kategorie', label: 'Kategorie' }, { label: 'Betrag', format: r => euro(r.Betrag) }, { key: 'Beschreibung', label: 'Beschreibung' }
+      ],
+      bearbeiten: openMaschinenkostenBearbeitenModal
+    },
+    tierkosten: {
+      titel: 'Tierkosten', liste: () => state.tierkosten.filter(inJahr),
+      spalten: [
+        { label: 'Datum', format: r => fmtDate(r.Datum) },
+        { label: 'Tier', format: r => { const t = state.tiere.find(x => x.ID === r.TierID); return t ? (t.Name || t.Ohrmarke) : '-'; } },
+        { key: 'Kategorie', label: 'Kategorie' }, { label: 'Betrag', format: r => euro(r.Betrag) }, { key: 'Beschreibung', label: 'Beschreibung' }
+      ],
+      bearbeiten: openTierkostenBearbeitenModal
+    },
+    allgemeinekosten: {
+      titel: 'Allgemeine Kosten', liste: () => state.allgemeinekosten.filter(inJahr),
+      spalten: [
+        { label: 'Datum', format: r => fmtDate(r.Datum) }, { key: 'Kategorie', label: 'Kategorie' },
+        { label: 'Betrag', format: r => euro(r.Betrag) }, { key: 'Beschreibung', label: 'Beschreibung' }
+      ],
+      bearbeiten: openAllgemeinekostenBearbeitenModal
+    },
+    tiererloese: {
+      titel: 'Tiererlöse', liste: () => state.tiererloese.filter(inJahr),
+      spalten: [
+        { label: 'Datum', format: r => fmtDate(r.Datum) },
+        { label: 'Tier', format: r => { const t = state.tiere.find(x => x.ID === r.TierID); return t ? (t.Name || t.Ohrmarke) : '-'; } },
+        { key: 'Art', label: 'Art' }, { label: 'Betrag', format: r => euro(r.Betrag) }, { key: 'Beschreibung', label: 'Beschreibung' }
+      ],
+      bearbeiten: openTiererloeseBearbeitenModal
+    },
+    erntevermarktung: {
+      titel: 'Erntevermarktung', liste: () => state.erntevermarktung.filter(inJahr),
+      spalten: [
+        { label: 'Datum', format: r => fmtDate(r.Datum) }, { key: 'Kategorie', label: 'Kategorie' },
+        { label: 'Menge', format: r => `${r.Menge || ''} ${r.Einheit || ''}` },
+        { label: 'Erlös', format: r => euro(r.Erloes) }, { key: 'Beschreibung', label: 'Beschreibung' }
+      ],
+      bearbeiten: openErntevermarktungBearbeitenModal
+    }
+  };
+
+  const cfg = CONFIG[kategorie];
+  if (!cfg) return;
+  openDetailModal(cfg.titel, async (body) => {
+    const reload = async () => {
+      const rows = [...cfg.liste()].sort((a, b) => new Date(b.Datum) - new Date(a.Datum));
+      renderTable(body, cfg.spalten, rows, { onEdit: (row) => cfg.bearbeiten(row, reload) });
+    };
+    await reload();
+  });
 }
 
 function openAllgemeineKostenModal() {
