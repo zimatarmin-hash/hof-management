@@ -2808,6 +2808,13 @@ function openTierBuchungenDetail(tier) {
         if (values.Beleg) { const up = await Api.uploadFile(values.Beleg, 'tier'); belegURL = up.url; }
         const saved = await safeCall('tierkosten.create', { TierID: tier.ID, ...values, BelegURL: belegURL }, 'Kosten erfasst.');
         cacheUpsert('tierkosten.list', saved);
+        // "Kauf" ist der Eingang des Tieres am Betrieb - egal ob gleich bei Anlage oder
+        // erst später nachgetragen, das Datum wandert automatisch ins Tier.
+        if (values.Kategorie === 'Kauf') {
+          const tierSaved = await safeCall('tiere.update', { id: tier.ID, Eingangsdatum: values.Datum });
+          cacheUpsert('tiere.list', tierSaved);
+          tier.Eingangsdatum = tierSaved.Eingangsdatum;
+        }
         await reload();
       }
     });
@@ -2823,7 +2830,16 @@ function openTierBuchungenDetail(tier) {
       onSubmit: async (values) => {
         const saved = await safeCall('tiererloese.create', { TierID: tier.ID, ...values }, 'Erlös erfasst.');
         cacheUpsert('tiererloese.list', saved);
+        // Verkauf/Schlachtung ist der Ausgang des Tieres - Status wird passend gesetzt,
+        // damit das Tier automatisch aus dem aktiven Bestand ins Register wandert.
+        const tierSaved = await safeCall('tiere.update', {
+          id: tier.ID, Ausgangsdatum: values.Datum, Status: values.Art === 'Schlachtung' ? 'Geschlachtet' : 'Verkauft'
+        }, 'Tier archiviert.');
+        cacheUpsert('tiere.list', tierSaved);
+        tier.Ausgangsdatum = tierSaved.Ausgangsdatum;
+        tier.Status = tierSaved.Status;
         await reload();
+        await loadViehSection();
       }
     });
 
