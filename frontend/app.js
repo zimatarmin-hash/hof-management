@@ -2579,6 +2579,7 @@ async function loadViehSection() {
       </div>
       <div class="text-xs text-gray-500">${t.Tierart}${t.Rasse ? ' · ' + t.Rasse : ''}${t.Ohrmarke && t.Name ? ' · ' + t.Ohrmarke : ''}</div>
       <div class="text-sm text-gray-600">${t.Status}${t.Geschlecht ? ' · ' + t.Geschlecht : ''}</div>
+      ${t.Geburtsdatum ? `<div class="text-xs text-gray-400">Geboren: ${fmtDate(t.Geburtsdatum)}</div>` : ''}
       ${t.Eingangsdatum ? `<div class="text-xs text-gray-400">Zugang: ${fmtDate(t.Eingangsdatum)}</div>` : ''}
       ${t.Ausgangsdatum ? `<div class="text-xs text-gray-400">Abgang: ${fmtDate(t.Ausgangsdatum)}</div>` : ''}
       <div class="text-xs text-gray-400">${zuchtstatusFuerTier(t.ID)}</div>
