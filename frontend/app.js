@@ -2618,6 +2618,7 @@ async function loadViehSection() {
   };
 
   document.getElementById('btnNeuesTier').onclick = () => openTierModal();
+  document.getElementById('btnSammelkosten').onclick = () => openSammelkostenModal();
   document.getElementById('btnExportBestandsregister').onclick = () => exportBestandsregisterCsv();
 }
 
@@ -2679,6 +2680,82 @@ function deckungsbeitragFuerTier(tierId) {
   const kosten = state.tierkosten.filter(k => k.TierID === tierId).reduce((s, k) => s + Number(k.Betrag || 0), 0);
   const erloese = state.tiererloese.filter(k => k.TierID === tierId).reduce((s, k) => s + Number(k.Betrag || 0), 0);
   return erloese - kosten;
+}
+
+const TIERKOSTEN_KATEGORIEN = ['Kauf', 'Tierarzt', 'Transport', 'Futter', 'Besamung', 'Sonstiges'];
+
+// Gesamtkosten (z.B. Tiertransport, Impfung des ganzen Bestands) gleichmäßig auf die
+// gewählten Tiere verteilen - je Tier entsteht ein normaler Kosteneintrag. Verteilung in
+// Cent, damit die Einzelbeträge zusammen exakt den Gesamtbetrag ergeben (100 € / 3 Tiere
+// = 33,34 / 33,33 / 33,33 statt 3 x 33,33 = 99,99).
+function verteileBetragInCent(gesamtEuro, anzahl) {
+  const cents = Math.round(Number(gesamtEuro) * 100);
+  const basis = Math.floor(cents / anzahl);
+  const rest = cents - basis * anzahl;
+  return Array.from({ length: anzahl }, (_, i) => (basis + (i < rest ? 1 : 0)) / 100);
+}
+
+function openSammelkostenModal() {
+  const tiere = (state.tiere || []).filter(t => t.Status === 'Lebend')
+    .sort((a, b) => String(a.Name || a.Ohrmarke || '').localeCompare(String(b.Name || b.Ohrmarke || ''), 'de'));
+  if (!tiere.length) { toast('Keine Tiere im aktiven Bestand.', true); return; }
+
+  openFormModal({
+    title: 'Sammelkosten auf Tiere aufteilen',
+    fields: [
+      { key: 'Datum', label: 'Datum', type: 'date', required: true },
+      { key: 'Kategorie', label: 'Kategorie', type: 'select', options: TIERKOSTEN_KATEGORIEN.filter(k => k !== 'Kauf') },
+      { key: 'Gesamtbetrag', label: 'Gesamtbetrag (€)', type: 'number', step: '0.01', required: true },
+      { key: 'Beschreibung', label: 'Beschreibung (z.B. Impfung, Transport zum Schlachthof)' },
+      { key: 'Beleg', label: 'Beleg-Foto/PDF (wird bei jedem Tier hinterlegt)', type: 'file', accept: 'image/*,.pdf' }
+    ],
+    onSubmit: async (values) => {
+      const ids = tiere.filter(t => values['tier_' + t.ID]).map(t => t.ID);
+      if (!ids.length) throw new Error('Bitte mindestens ein Tier auswählen.');
+      if (!(Number(values.Gesamtbetrag) > 0)) throw new Error('Bitte einen Gesamtbetrag größer 0 eingeben.');
+
+      let belegURL = '';
+      if (values.Beleg) { const up = await Api.uploadFile(values.Beleg, 'tier'); belegURL = up.url; }
+      const betraege = verteileBetragInCent(values.Gesamtbetrag, ids.length);
+      const beschreibung = `${values.Beschreibung ? values.Beschreibung + ' ' : ''}(Sammelbuchung ${euro(values.Gesamtbetrag)} auf ${ids.length} Tiere)`;
+
+      for (let i = 0; i < ids.length; i++) {
+        const saved = await safeCall('tierkosten.create', {
+          TierID: ids[i], Datum: values.Datum, Kategorie: values.Kategorie,
+          Betrag: betraege[i], Beschreibung: beschreibung, BelegURL: belegURL
+        });
+        cacheUpsert('tierkosten.list', saved);
+      }
+      toast(`Kosten auf ${ids.length} Tiere aufgeteilt.`);
+      await loadViehSection();
+    }
+  });
+
+  // Tierauswahl + Live-Vorschau der Aufteilung unter die Formularfelder setzen
+  const auswahl = document.createElement('div');
+  auswahl.innerHTML = `
+    <div class="flex items-center justify-between mb-1">
+      <span class="block text-sm font-medium text-gray-600">Tiere</span>
+      <span class="text-xs"><button type="button" id="sammelAlle" class="text-blue-600 hover:underline">Alle</button> · <button type="button" id="sammelKeine" class="text-blue-600 hover:underline">Keine</button></span>
+    </div>
+    <div class="grid grid-cols-1 sm:grid-cols-2 gap-x-3 gap-y-1 max-h-48 overflow-y-auto border rounded p-2">
+      ${tiere.map(t => `<label class="flex items-center gap-2 text-sm"><input type="checkbox" name="tier_${t.ID}" class="w-4 h-4 sammel-tier" checked> ${t.Name || t.Ohrmarke || 'unbenannt'}${t.Name && t.Ohrmarke ? ` <span class="text-gray-400 text-xs">${t.Ohrmarke}</span>` : ''}</label>`).join('')}
+    </div>
+    <p id="sammelVorschau" class="text-sm text-gray-600 mt-2"></p>`;
+  formModalBody.appendChild(auswahl);
+
+  const aktualisiereVorschau = () => {
+    const n = formModalBody.querySelectorAll('.sammel-tier:checked').length;
+    const gesamt = Number(document.getElementById('field_Gesamtbetrag').value);
+    document.getElementById('sammelVorschau').textContent = n && gesamt > 0
+      ? `${n} Tier${n === 1 ? '' : 'e'} ausgewählt → je ${euro(gesamt / n)}`
+      : `${n} Tier${n === 1 ? '' : 'e'} ausgewählt`;
+  };
+  formModalBody.querySelectorAll('.sammel-tier').forEach(cb => cb.addEventListener('change', aktualisiereVorschau));
+  document.getElementById('field_Gesamtbetrag').addEventListener('input', aktualisiereVorschau);
+  document.getElementById('sammelAlle').onclick = () => { formModalBody.querySelectorAll('.sammel-tier').forEach(cb => cb.checked = true); aktualisiereVorschau(); };
+  document.getElementById('sammelKeine').onclick = () => { formModalBody.querySelectorAll('.sammel-tier').forEach(cb => cb.checked = false); aktualisiereVorschau(); };
+  aktualisiereVorschau();
 }
 
 function openTierModal(initial = {}) {
@@ -2799,7 +2876,7 @@ function openTierBuchungenDetail(tier) {
       title: 'Kosten erfassen',
       fields: [
         { key: 'Datum', label: 'Datum', type: 'date', required: true },
-        { key: 'Kategorie', label: 'Kategorie', type: 'select', options: ['Kauf', 'Tierarzt', 'Futter', 'Besamung', 'Sonstiges'] },
+        { key: 'Kategorie', label: 'Kategorie', type: 'select', options: TIERKOSTEN_KATEGORIEN },
         { key: 'Betrag', label: 'Betrag (€)', type: 'number', step: '0.01', required: true },
         { key: 'Beschreibung', label: 'Beschreibung' },
         { key: 'Beleg', label: 'Beleg-Foto/PDF', type: 'file', accept: 'image/*,.pdf' }
@@ -3850,7 +3927,7 @@ function openTierkostenBearbeitenModal(initial, reload) {
     title: 'Tierkosten bearbeiten',
     fields: [
       { key: 'Datum', label: 'Datum', type: 'date', required: true },
-      { key: 'Kategorie', label: 'Kategorie', type: 'select', options: ['Kauf', 'Tierarzt', 'Futter', 'Besamung', 'Sonstiges'] },
+      { key: 'Kategorie', label: 'Kategorie', type: 'select', options: TIERKOSTEN_KATEGORIEN },
       { key: 'Betrag', label: 'Betrag (€)', type: 'number', step: '0.01', required: true },
       { key: 'Beschreibung', label: 'Beschreibung' }
     ],
