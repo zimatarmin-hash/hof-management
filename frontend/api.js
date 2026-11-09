@@ -199,13 +199,75 @@ const ENTITIES = {
 
 Object.values(ENTITIES).forEach(cfg => { if (!cfg.pkCol) cfg.pkCol = 'id'; });
 
+// ============================================================================
+// DATEIEN (Fotos/Belege/Dokumente) - Bucket ist PRIVAT. In der Datenbank steht nur der
+// Pfad im Bucket; beim Laden wird daraus eine zeitlich begrenzte signierte URL, beim
+// Speichern wird jede URL (signiert oder eine alte öffentliche) wieder auf den Pfad
+// zurückgeführt. app.js arbeitet weiter mit "URLs" und merkt davon nichts.
+// ============================================================================
+const DATEI_BUCKET = 'hof-management';
+const SIGNED_URL_SEKUNDEN = 6 * 3600;
+const DATEI_URL_SPALTEN = ['foto_url', 'beleg_url'];
+const DATEI_URL_MUSTER = new RegExp('/storage/v1/object/(?:public|sign|authenticated)/' + DATEI_BUCKET + '/([^?#]+)');
+
+// URL/Pfad -> reiner Bucket-Pfad. Fremde URLs (z.B. alte Google-Bilder) bleiben unverändert.
+function dateiPfad(wert) {
+  if (typeof wert !== 'string' || !wert) return wert;
+  const treffer = wert.match(DATEI_URL_MUSTER);
+  if (treffer) { try { return decodeURIComponent(treffer[1]); } catch (e) { return treffer[1]; } }
+  return wert;
+}
+
+function istBucketPfad(wert) {
+  return typeof wert === 'string' && wert !== '' && !/^[a-z][a-z0-9+.-]*:/i.test(wert);
+}
+
+function dokumenteZuPfaden(liste) {
+  return Array.isArray(liste) ? liste.map(d => (d && typeof d === 'object') ? { ...d, url: dateiPfad(d.url) } : d) : liste;
+}
+
+// Rohzeilen aus Postgres -> app.js-Objekte, mit signierten URLs für alle Datei-Spalten.
+async function ladeZeilen(cfg, rows) {
+  const spalten = Object.values(cfg.felder);
+  const hatDateien = spalten.some(c => DATEI_URL_SPALTEN.indexOf(c) !== -1 || c === 'dokumente_json');
+  if (!hatDateien || !rows.length) return rows.map(r => fromPg(cfg, r));
+
+  const pfade = new Set();
+  rows.forEach(r => {
+    DATEI_URL_SPALTEN.forEach(c => { if (c in r) { const p = dateiPfad(r[c]); if (istBucketPfad(p)) pfade.add(p); } });
+    if (Array.isArray(r.dokumente_json)) r.dokumente_json.forEach(d => { const p = d && dateiPfad(d.url); if (istBucketPfad(p)) pfade.add(p); });
+  });
+
+  const signiert = {};
+  if (pfade.size) {
+    const { data, error } = await supabaseClient.storage.from(DATEI_BUCKET).createSignedUrls([...pfade], SIGNED_URL_SEKUNDEN);
+    if (error) throw new Error(error.message);
+    (data || []).forEach(e => { if (e.path && e.signedUrl) signiert[e.path] = e.signedUrl; });
+  }
+  const zuUrl = (wert) => {
+    const p = dateiPfad(wert);
+    return istBucketPfad(p) ? (signiert[p] || '') : wert;
+  };
+
+  return rows.map(r => {
+    const kopie = { ...r };
+    DATEI_URL_SPALTEN.forEach(c => { if (c in kopie) kopie[c] = zuUrl(kopie[c]); });
+    if (Array.isArray(kopie.dokumente_json)) {
+      kopie.dokumente_json = kopie.dokumente_json.map(d => (d && typeof d === 'object') ? { ...d, url: zuUrl(d.url) } : d);
+    }
+    return fromPg(cfg, kopie);
+  });
+}
+
 function toPgValue(value, col, cfg) {
   if (value === '' || value === undefined || value === null) return null;
+  if (DATEI_URL_SPALTEN.indexOf(col) !== -1) return dateiPfad(value);
   if (cfg.json && cfg.json.indexOf(col) !== -1) {
+    let parsed = value;
     if (typeof value === 'string') {
-      try { return JSON.parse(value); } catch (e) { return null; }
+      try { parsed = JSON.parse(value); } catch (e) { return null; }
     }
-    return value;
+    return col === 'dokumente_json' ? dokumenteZuPfaden(parsed) : parsed;
   }
   if (cfg.bool && cfg.bool.indexOf(col) !== -1) {
     return value === true || value === 'true' || value === 'TRUE' || value === 1;
@@ -385,7 +447,7 @@ async function genericList(entity) {
   const cfg = ENTITIES[entity];
   const { data, error } = await supabaseClient.from(cfg.table).select('*');
   if (error) throw new Error(error.message);
-  return (data || []).map(r => fromPg(cfg, r));
+  return ladeZeilen(cfg, data || []);
 }
 
 async function genericGet(entity, id) {
@@ -393,7 +455,7 @@ async function genericGet(entity, id) {
   const { data, error } = await supabaseClient.from(cfg.table).select('*').eq(cfg.pkCol, id).maybeSingle();
   if (error) throw new Error(error.message);
   if (!data) throw new Error('Datensatz nicht gefunden.');
-  return fromPg(cfg, data);
+  return (await ladeZeilen(cfg, [data]))[0];
 }
 
 async function genericCreate(entity, payload) {
@@ -402,7 +464,7 @@ async function genericCreate(entity, payload) {
   const row = toPg(cfg, payload, user, true);
   const { data, error } = await supabaseClient.from(cfg.table).insert(row).select().single();
   if (error) throw new Error(error.message);
-  return fromPg(cfg, data);
+  return (await ladeZeilen(cfg, [data]))[0];
 }
 
 async function genericUpdate(entity, id, payload) {
@@ -411,7 +473,7 @@ async function genericUpdate(entity, id, payload) {
   const row = toPg(cfg, payload, null, false);
   const { data, error } = await supabaseClient.from(cfg.table).update(row).eq(cfg.pkCol, id).select().single();
   if (error) throw new Error(error.message);
-  return fromPg(cfg, data);
+  return (await ladeZeilen(cfg, [data]))[0];
 }
 
 async function genericDelete(entity, id) {
@@ -667,13 +729,16 @@ const Api = {
   async uploadFile(file, category) {
     const KATEGORIE_ORDNER = { tier: 'Tiere', maschine: 'Maschinen', flasche: 'Flaschen' };
     const ordner = KATEGORIE_ORDNER[category] || 'Sonstiges';
-    const ext = (file.name.split('.').pop() || 'dat').toLowerCase();
+    const ext = (file.name.split('.').pop() || 'dat').toLowerCase().replace(/[^a-z0-9]/g, '').slice(0, 8) || 'dat';
     const path = `${ordner}/${crypto.randomUUID()}.${ext}`;
-    const { error } = await supabaseClient.storage.from('hof-management').upload(path, file, {
+    const { error } = await supabaseClient.storage.from(DATEI_BUCKET).upload(path, file, {
       contentType: file.type || 'application/octet-stream'
     });
     if (error) throw new Error(error.message);
-    const { data } = supabaseClient.storage.from('hof-management').getPublicUrl(path);
-    return { url: data.publicUrl, path };
+    // Bucket ist privat: zurück kommt eine zeitlich begrenzte signierte URL (nur zur
+    // sofortigen Anzeige) - gespeichert wird beim Schreiben in die DB nur der Pfad.
+    const { data, error: signError } = await supabaseClient.storage.from(DATEI_BUCKET).createSignedUrl(path, SIGNED_URL_SEKUNDEN);
+    if (signError) throw new Error(signError.message);
+    return { url: data.signedUrl, path };
   }
 };

@@ -12,7 +12,9 @@ language sql stable security definer set search_path = public as $$
   select p.email, p.name,
     (select max(a.ts) from public.aktivitaets_log a where a.user_email = p.email) as last_seen
   from public.profiles p
-  where p.status = 'Aktiv';
+  where p.status = 'Aktiv' and public.is_active_user();
 $$;
 
+-- Postgres erlaubt neue Funktionen standardmäßig für alle (auch "anon") - gezielt entziehen.
+revoke execute on function public.user_activity_overview() from public, anon;
 grant execute on function public.user_activity_overview() to authenticated;
